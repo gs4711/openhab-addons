@@ -63,6 +63,7 @@ class SSLconnection {
      */
 
     private static final int CONNECTION_BUFFER_SIZE = 4096;
+    private static final int SOCKET_CREATION_TIMEOUT_IN_MSECS = 10000;
 
     private boolean ready = false;
     private @Nullable SSLSocket socket;
@@ -103,7 +104,6 @@ class SSLconnection {
     SSLconnection() {
         logger.debug("SSLconnection() called.");
         ready = false;
-        logger.trace("SSLconnection() finished.");
     }
 
     /**
@@ -130,6 +130,8 @@ class SSLconnection {
         SSLSocket socketX = (SSLSocket) ctx.getSocketFactory().createSocket(host, port);
         logger.trace("SSLconnection(): starting SSL handshake...");
         if (socketX != null) {
+            // Just to avoid infinite waiting during socket creation
+            socketX.setSoTimeout(SOCKET_CREATION_TIMEOUT_IN_MSECS);
             socketX.startHandshake();
             dOut = new DataOutputStream(socketX.getOutputStream());
             dIn = new DataInputStreamWithTimeout(socketX.getInputStream());
