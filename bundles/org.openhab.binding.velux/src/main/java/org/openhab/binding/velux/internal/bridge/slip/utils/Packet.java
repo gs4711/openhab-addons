@@ -64,8 +64,7 @@ public class Packet {
 
     /**
      * Constructor: Create a {@link org.openhab.binding.velux.internal.bridge.slip.utils.Packet Packet} out of a
-     * sequence of
-     * bytes.
+     * sequence of bytes.
      *
      * @param thisData Packet as Array of bytes.
      */
