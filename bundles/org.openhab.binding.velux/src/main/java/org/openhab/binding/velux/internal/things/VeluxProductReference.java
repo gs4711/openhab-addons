@@ -54,9 +54,8 @@ public class VeluxProductReference {
         this.name = name;
         this.typeId = VeluxProductType.get(type);
         if (this.typeId == VeluxProductType.UNDEFTYPE) {
-            logger.warn(
-                    "Please report this to maintainer of the {} binding: VeluxProductReference({}) has found an unregistered ProductTypeId.",
-                    VeluxBindingConstants.BINDING_ID, type);
+            logger.warn("{} VeluxProductReference({}) has found an unregistered ProductTypeId.",
+                    VeluxBindingConstants.LOGGING_CONTACT, type);
         }
     }
 
