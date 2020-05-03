@@ -69,7 +69,7 @@ final class ChannelActuatorLimitation extends ChannelHandlerTemplate {
      *            information for this channel.
      * @return newState The value retrieved for the passed channel, or <I>null</I> in case if there is no (new) value.
      */
-    static @Nullable State handleRefresh(ChannelUID channelUID, String channelId,
+    static @Nullable synchronized State handleRefresh(ChannelUID channelUID, String channelId,
             VeluxBridgeHandler thisBridgeHandler) {
         LOGGER.debug("handleRefresh({},{},{}) called.", channelUID, channelId, thisBridgeHandler);
         State newState = null;
@@ -146,7 +146,7 @@ final class ChannelActuatorLimitation extends ChannelHandlerTemplate {
      *            information for this channel.
      * @return newValue ...
      */
-    static @Nullable Command handleCommand(ChannelUID channelUID, String channelId, Command command,
+    static @Nullable synchronized Command handleCommand(ChannelUID channelUID, String channelId, Command command,
             VeluxBridgeHandler thisBridgeHandler) {
         LOGGER.debug("handleCommand({},{},{},{}) called.", channelUID, channelId, command, thisBridgeHandler);
         Command newValue = null;

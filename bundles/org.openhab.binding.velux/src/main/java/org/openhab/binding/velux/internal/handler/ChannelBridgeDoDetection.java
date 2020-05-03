@@ -63,7 +63,7 @@ final class ChannelBridgeDoDetection extends ChannelHandlerTemplate {
      *            information for this channel.
      * @return newValue ...
      */
-    static @Nullable Command handleCommand(ChannelUID channelUID, String channelId, Command command,
+    static @Nullable synchronized Command handleCommand(ChannelUID channelUID, String channelId, Command command,
             VeluxBridgeHandler thisBridgeHandler) {
         LOGGER.debug("handleCommand({},{},{},{}) called.", channelUID, channelId, command, thisBridgeHandler);
         if (command == OnOffType.ON) {
