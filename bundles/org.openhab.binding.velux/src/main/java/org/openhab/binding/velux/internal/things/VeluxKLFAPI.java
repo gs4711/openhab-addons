@@ -355,4 +355,289 @@ public class VeluxKLFAPI {
 
     }
 
+    /**
+     * Enumeration of complete API as definition of a List of ErrorNumber parameters.
+     * <P>
+     * See <a href=
+     * "https://velcdn.azureedge.net/~/media/com/api/klf200/technical%20specification%20for%20klf%20200%20api.pdf#page=24">
+     * Table 42 - StatusID parameter description.</a>
+     * <P>
+     * Methods available:
+     * <UL>
+     * <LI>Constructor {@link ErrorNumber} by String.</LI>
+     * <LI>Method {@link getValue} to return a value of this status.</LI>
+     * <LI>Method {@link getDescription} to return a description as String.</LI>
+     * <LI>Method {@link get} to return a {@link ErrorNumber} based on the given <B>short</B>.</LI>
+     * </UL>
+     */
+    public enum ErrorNumber {
+        // Special item: unrecognized ErrorNumber
+        UNDEFTYPE((short) -1, "Unknown ErrorNumber."),
+        ERROR_UNSPECIFIED((short) 0, "Not further defined error."),
+        ERROR_UNACCEPTED((short) 1, "Unknown Command or command is not accepted at this state."),
+        ERROR_STRUCTURE((short) 2, "ERROR on Frame Structure."),
+        ERROR_BUSY((short) 7, "Busy. Try again later."),
+        ERROR_BADINDEX((short) 8, "Bad system table index."),
+        ERROR_UNAUTH((short) 12, "Not authenticated."),;
+
+        // Class internal
+
+        private short errorValue;
+        private String description;
+
+        // Reverse-lookup map for getting a Command from an TypeId
+        private static final Map<Short, ErrorNumber> LOOKUPTYPEID2ENUM = Stream.of(ErrorNumber.values())
+                .collect(Collectors.toMap(ErrorNumber::getValue, Function.identity()));
+
+        // Constructor
+
+        private ErrorNumber(short typeId, String description) {
+            this.errorValue = typeId;
+            this.description = description;
+        }
+
+        // Class access methods
+
+        public short getValue() {
+            return errorValue;
+        }
+
+        public String getDescription() {
+            return description;
+        }
+
+        public static ErrorNumber get(short thisTypeId) {
+            if (LOOKUPTYPEID2ENUM.containsKey(thisTypeId)) {
+                return LOOKUPTYPEID2ENUM.get(thisTypeId);
+            } else {
+                return ErrorNumber.UNDEFTYPE;
+            }
+        }
+
+    }
+
+    /**
+     * Enumeration of complete API as definition of a List of StatusID parameters.
+     * <P>
+     * See <a href=
+     * "https://velcdn.azureedge.net/~/media/com/api/klf200/technical%20specification%20for%20klf%20200%20api.pdf#page=66">
+     * Table 172 - StatusID parameter description.</a>
+     * <P>
+     * Methods available:
+     * <UL>
+     * <LI>Constructor {@link StatusID} by String.</LI>
+     * <LI>Method {@link getValue} to return a value of this status.</LI>
+     * <LI>Method {@link getDescription} to return a description as String.</LI>
+     * <LI>Method {@link get} to return a {@link StatusID} based on the given <B>short</B>.</LI>
+     * </UL>
+     */
+    public enum StatusID {
+        // Special item: unrecognized StatusID
+        UNDEFTYPE((short) -1, "Unknown StatusID."),
+        STATUS_USER((short) 0x01, "The status is from a user activation."),
+        STATUS_RAIN((short) 0x02, "The status is from a rain sensor activation."),
+        STATUS_TIMER((short) 0x03, "The status is from a timer generated action."),
+        STATUS_UPS((short) 0x05, "The status is from a UPS generated action."),
+        STATUS_PROGRAM((short) 0x08, "The status is from an automatic program generated action. (SAAC)"),
+        STATUS_WIND((short) 0x09, "The status is from a Wind sensor generated action."),
+        STATUS_MYSELF((short) 0x0A, "The status is from an actuator generated action."),
+        STATUS_AUTOMATIC_CYCLE((short) 0x0B, "The status is from a automatic cycle generated action."),
+        STATUS_EMERGENCY((short) 0x0C, "The status is from an emergency or a security generated action."),
+        STATUS_UNKNOWN((short) 0xFF, "The status is from an unknown command originator action."),;
+
+        // Class internal
+
+        private short statusIDValue;
+        private String description;
+
+        // Reverse-lookup map for getting a Command from an TypeId
+        private static final Map<Short, StatusID> LOOKUPTYPEID2ENUM = Stream.of(StatusID.values())
+                .collect(Collectors.toMap(StatusID::getValue, Function.identity()));
+
+        // Constructor
+
+        private StatusID(short typeId, String description) {
+            this.statusIDValue = typeId;
+            this.description = description;
+        }
+
+        // Class access methods
+
+        public short getValue() {
+            return statusIDValue;
+        }
+
+        public String getDescription() {
+            return description;
+        }
+
+        public static StatusID get(short thisTypeId) {
+            if (LOOKUPTYPEID2ENUM.containsKey(thisTypeId)) {
+                return LOOKUPTYPEID2ENUM.get(thisTypeId);
+            } else {
+                return StatusID.UNDEFTYPE;
+            }
+        }
+
+    }
+
+    /**
+     * Enumeration of complete API as definition of a List of RunStatus parameters.
+     * <P>
+     * See <a href=
+     * "https://velcdn.azureedge.net/~/media/com/api/klf200/technical%20specification%20for%20klf%20200%20api.pdf#page=67">
+     * Table 174 - StatusReply parameter description.</a>
+     * <P>
+     * Methods available:
+     * <UL>
+     * <LI>Constructor {@link RunStatus} by String.</LI>
+     * <LI>Method {@link getValue} to return a value of this status.</LI>
+     * <LI>Method {@link getDescription} to return a description as String.</LI>
+     * <LI>Method {@link get} to return a {@link RunStatus} based on the given <B>short</B>.</LI>
+     * </UL>
+     */
+    public enum RunStatus {
+        // Special item: unrecognized RunStatus
+        UNDEFTYPE((short) -1, "Unknown RunStatus."),
+        EXECUTION_COMPLETED((short) 0, "Execution is completed with no errors."),
+        EXECUTION_FAILED((short) 1, "Execution has failed (Specifics revealed in StatusReply)."),
+        EXECUTION_ACTIVE((short) 2, "Execution is still active."),;
+
+        // Class internal
+
+        private short runStatusValue;
+        private String description;
+
+        // Reverse-lookup map for getting a Command from an TypeId
+        private static final Map<Short, RunStatus> LOOKUPTYPEID2ENUM = Stream.of(RunStatus.values())
+                .collect(Collectors.toMap(RunStatus::getValue, Function.identity()));
+
+        // Constructor
+
+        private RunStatus(short typeId, String description) {
+            this.runStatusValue = typeId;
+            this.description = description;
+        }
+
+        // Class access methods
+
+        public short getValue() {
+            return runStatusValue;
+        }
+
+        public String getDescription() {
+            return description;
+        }
+
+        public static RunStatus get(short thisTypeId) {
+            if (LOOKUPTYPEID2ENUM.containsKey(thisTypeId)) {
+                return LOOKUPTYPEID2ENUM.get(thisTypeId);
+            } else {
+                return RunStatus.UNDEFTYPE;
+            }
+        }
+
+    }
+
+    /**
+     * Enumeration of complete API as definition of a List of StatusReply parameters.
+     * <P>
+     * See <a href=
+     * "https://velcdn.azureedge.net/~/media/com/api/klf200/technical%20specification%20for%20klf%20200%20api.pdf#page=67">
+     * Table 175 - StatusReply parameter description.</a>
+     * <P>
+     * Methods available:
+     * <UL>
+     * <LI>Constructor {@link StatusReply} by String.</LI>
+     * <LI>Method {@link getShort} to return a value of this status.</LI>
+     * <LI>Method {@link getDescription} to return a description as String.</LI>
+     * <LI>Method {@link get} to return a {@link StatusReply} based on the given <B>short</B>.</LI>
+     * </UL>
+     */
+    public enum StatusReply {
+        // Special item: unrecognized command
+        UNDEFTYPE((short) -1, "Unknown command."),
+        UNKNOWN_STATUS_REPLY((short) 0x00, "Used to indicate unknown reply."),
+        COMMAND_COMPLETED_OK((short) 0x01, "Indicates no errors detected."),
+        NO_CONTACT((short) 0x02, "Indicates no communication to node."),
+        MANUALLY_OPERATED((short) 0x03, "Indicates manually operated by a user."),
+        BLOCKED((short) 0x04, "Indicates node has been blocked by an object."),
+        WRONG_SYSTEMKEY((short) 0x05, "Indicates the node contains a wrong system key."),
+        PRIORITY_LEVEL_LOCKED((short) 0x06, "Indicates the node is locked on this priority level."),
+        REACHED_WRONG_POSITION((short) 0x07, "Indicates node has stopped in another position than expected."),
+        ERROR_DURING_EXECUTION((short) 0x08, "Indicates an error has occurred during execution of command."),
+        NO_EXECUTION((short) 0x09, "Indicates no movement of the node parameter."),
+        CALIBRATING((short) 0x0A, "Indicates the node is calibrating the parameters."),
+        POWER_CONSUMPTION_TOO_HIGH((short) 0x0B, "Indicates the node power consumption is too high."),
+        POWER_CONSUMPTION_TOO_LOW((short) 0x0C, "Indicates the node power consumption is too low."),
+        LOCK_POSITION_OPEN((short) 0x0D, "Indicates door lock errors. (Door open during lock command)"),
+        MOTION_TIME_TOO_LONG__COMMUNICATION_ENDED((short) 0x0E, "Indicates the target was not reached in time."),
+        THERMAL_PROTECTION((short) 0x0F, "Indicates the node has gone into thermal protection mode."),
+        PRODUCT_NOT_OPERATIONAL((short) 0x10, "Indicates the node is not currently operational."),
+        FILTER_MAINTENANCE_NEEDED((short) 0x11, "Indicates the filter needs maintenance."),
+        BATTERY_LEVEL((short) 0x12, "Indicates the battery level is low."),
+        TARGET_MODIFIED((short) 0x13, "Indicates the node has modified the target value of the command."),
+        MODE_NOT_IMPLEMENTED((short) 0x14, "Indicates this node does not support the mode received."),
+        COMMAND_INCOMPATIBLE_TO_MOVEMENT((short) 0x15, "Indicates the node is unable to move in the right direction."),
+        USER_ACTION((short) 0x16, "Indicates dead bolt is manually locked during unlock command."),
+        DEAD_BOLT_ERROR((short) 0x17, "Indicates dead bolt error."),
+        AUTOMATIC_CYCLE_ENGAGED((short) 0x18, "Indicates the node has gone into automatic cycle mode."),
+        WRONG_LOAD_CONNECTED((short) 0x19, "Indicates wrong load on node."),
+        COLOUR_NOT_REACHABLE((short) 0x1A, "Indicates that node is unable to reach received colour code."),
+        TARGET_NOT_REACHABLE((short) 0x1B, "Indicates the node is unable to reach received target position."),
+        BAD_INDEX_RECEIVED((short) 0x1C, "Indicates io-protocol has received an invalid index."),
+        COMMAND_OVERRULED((short) 0x1D, "Indicates that the command was overruled by a new command."),
+        NODE_WAITING_FOR_POWER((short) 0x1E, "Indicates that the node reported waiting for power."),
+        INFORMATION_CODE((short) 0xDF, "Indicates an unknown error code received. (Hex code is shown on display)"),
+        PARAMETER_LIMITED((short) 0xE0,
+                "Indicates the parameter was limited by an unknown device. (Same as LIMITATION_BY_UNKNOWN_DEVICE)"),
+        LIMITATION_BY_LOCAL_USER((short) 0xE1, "Indicates the parameter was limited by local button."),
+        LIMITATION_BY_USER((short) 0xE2, "Indicates the parameter was limited by a remote control."),
+        LIMITATION_BY_RAIN((short) 0xE3, "Indicates the parameter was limited by a rain sensor."),
+        LIMITATION_BY_TIMER((short) 0xE4, "Indicates the parameter was limited by a timer."),
+        LIMITATION_BY_UPS((short) 0xE6, "Indicates the parameter was limited by a power supply."),
+        LIMITATION_BY_UNKNOWN_DEVICE((short) 0xE7,
+                "Indicates the parameter was limited by an unknown device. (Same as PARAMETER_LIMITED)"),
+        LIMITATION_BY_SAAC((short) 0xEA, "Indicates the parameter was limited by a standalone automatic controller."),
+        LIMITATION_BY_WIND((short) 0xEB, "Indicates the parameter was limited by a wind sensor."),
+        LIMITATION_BY_MYSELF((short) 0xEC, "Indicates the parameter was limited by the node itself."),
+        LIMITATION_BY_AUTOMATIC_CYCLE((short) 0xED, "Indicates the parameter was limited by an automatic cycle."),
+        LIMITATION_BY_EMERGENCY((short) 0xEE, "Indicates the parameter was limited by an emergency."),;
+
+        // Class internal
+
+        private short statusReplyValue;
+        private String description;
+
+        // Reverse-lookup map for getting a Command from an TypeId
+        private static final Map<Short, StatusReply> LOOKUPTYPEID2ENUM = Stream.of(StatusReply.values())
+                .collect(Collectors.toMap(StatusReply::getValue, Function.identity()));
+
+        // Constructor
+
+        private StatusReply(short typeId, String description) {
+            this.statusReplyValue = typeId;
+            this.description = description;
+        }
+
+        // Class access methods
+
+        public short getValue() {
+            return statusReplyValue;
+        }
+
+        public String getDescription() {
+            return description;
+        }
+
+        public static StatusReply get(short thisTypeId) {
+            if (LOOKUPTYPEID2ENUM.containsKey(thisTypeId)) {
+                return LOOKUPTYPEID2ENUM.get(thisTypeId);
+            } else {
+                return StatusReply.UNDEFTYPE;
+            }
+        }
+
+    }
+
 }
