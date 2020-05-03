@@ -55,7 +55,7 @@ public class VeluxBridgeGetHouseStatus {
                 success = true;
             }
         }
-        logger.debug("evaluateState() finished {}.", (success ? "successfully" : "with failure"));
+        logger.debug("evaluateState() finished {}.", (success ? "successfully" : "with no new information"));
         return success;
     }
 
