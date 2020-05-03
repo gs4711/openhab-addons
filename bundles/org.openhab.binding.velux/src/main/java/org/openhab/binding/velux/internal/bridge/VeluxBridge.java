@@ -191,8 +191,7 @@ public abstract class VeluxBridge {
      * @param useAuthentication whether to use authenticated communication.
      * @return true if communication was successful, and false otherwise.
      */
-    private synchronized boolean bridgeCommunicate(BridgeCommunicationProtocol communication,
-            boolean useAuthentication) {
+    private boolean bridgeCommunicate(BridgeCommunicationProtocol communication, boolean useAuthentication) {
         logger.trace("bridgeCommunicate({},{}authenticated) called.", communication.name(),
                 useAuthentication ? "" : "un");
 
@@ -218,7 +217,7 @@ public abstract class VeluxBridge {
      *            URL definition.
      * @return true if communication was successful, and false otherwise.
      */
-    public synchronized boolean bridgeCommunicate(BridgeCommunicationProtocol communication) {
+    public boolean bridgeCommunicate(BridgeCommunicationProtocol communication) {
         logger.trace("bridgeCommunicate({}) called.", communication.name());
         if (!isAuthenticated()) {
             bridgeLogin();
