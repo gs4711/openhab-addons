@@ -65,7 +65,7 @@ public class Threads {
      *
      * @see ThreadMXBean#findDeadlockedThreads
      */
-    public static void findDeadlocked() {
+    public static synchronized void findDeadlocked() {
         ThreadMXBean tmx = ManagementFactory.getThreadMXBean();
         long[] ids = tmx.findDeadlockedThreads();
         if (ids != null) {
@@ -77,4 +77,27 @@ public class Threads {
             LOGGER.warn("findDeadlocked() done.");
         }
     }
+
+    /**
+     * Print the current stack trace of this thread.
+     * <P>
+     * This method is designed for troubleshooting use.
+     * <P>
+     * Read more:
+     * https://javarevisited.blogspot.com/2013/04/how-to-get-current-stack-trace-in-java-thread.html
+     */
+    public static synchronized void logStacktrace() {
+        for (StackTraceElement st : Thread.currentThread().getStackTrace()) {
+            if (st.getClassName().startsWith("java.lang.Thread")) {
+                continue;
+            }
+            if (st.getClassName().startsWith("org")) {
+                LOGGER.warn("logStacktrace(): {}.", st);
+            } else {
+                LOGGER.warn("logStacktrace(): {}.", st);
+                return;
+            }
+        }
+    }
+
 }
