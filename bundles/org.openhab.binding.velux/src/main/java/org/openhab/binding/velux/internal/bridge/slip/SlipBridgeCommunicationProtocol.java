@@ -71,8 +71,9 @@ interface SlipBridgeCommunicationProtocol extends BridgeCommunicationProtocol {
      * @param thisResponseData of type Array of bytes: data part of response packet to be processed.
      * @param isSequentialEnforced of type boolean: enforces the strict handshake sequence even for long duration
      *            interactions.
+     * @return <b>processedSuccessfully</b> as boolean.
      */
-    public void setResponse(short thisResponseCommand, byte[] thisResponseData, boolean isSequentialEnforced);
+    public boolean setResponse(short thisResponseCommand, byte[] thisResponseData, boolean isSequentialEnforced);
 
     /**
      * Returning the communication status included within the response message..
