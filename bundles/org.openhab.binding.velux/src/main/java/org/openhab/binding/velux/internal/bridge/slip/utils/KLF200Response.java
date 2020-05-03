@@ -12,7 +12,11 @@
  */
 package org.openhab.binding.velux.internal.bridge.slip.utils;
 
+import java.util.Map;
+import java.util.Set;
+
 import org.eclipse.jdt.annotation.NonNullByDefault;
+import org.openhab.binding.velux.internal.VeluxBindingConstants;
 import org.openhab.binding.velux.internal.things.VeluxKLFAPI.Command;
 import org.openhab.binding.velux.internal.things.VeluxKLFAPI.CommandNumber;
 import org.slf4j.Logger;
@@ -25,6 +29,7 @@ import org.slf4j.Logger;
  * <P>
  * Static methods are:
  * <UL>
+ * <LI>{@link #requestLogging} for logging used by the request handling.</LI>
  * <LI>{@link #introLogging} for logging used at the beginning of the response handling.</LI>
  * <LI>{@link #errorLogging} for error logging during processing.</LI>
  * <LI>{@link #outroLogging} logging used at the end of the response handling.</LI>
@@ -37,6 +42,18 @@ import org.slf4j.Logger;
  */
 @NonNullByDefault
 public class KLF200Response {
+
+    /**
+     * User-oriented logging in two log levels for monitoring KLF behavior.
+     * <P>
+     * Introduction logging used at the beginning of the request handling.
+     *
+     * @param logger Instantiated logging class to be used for output.
+     * @param requestCommand The command byte of the request packet.
+     */
+    public static void requestLogging(Logger logger, Command requestCommand) {
+        logger.debug("getRequestCommand() returns {} ({}).", requestCommand.name(), requestCommand.getCommand());
+    }
 
     /**
      * Provides user-oriented logging in two log levels for monitoring KLF behavior.
@@ -83,8 +100,6 @@ public class KLF200Response {
     }
 
     /**
-     * Provides user-oriented logging in two log levels for monitoring KLF behavior.
-     * <P>
      * Check the intended length of the response packet.
      *
      * @param logger Instantiated logging class to be used for output.
@@ -125,8 +140,7 @@ public class KLF200Response {
         logger.trace("check4matchingAnyID() called for request{} {} and response{} {}.", idName, requestID, idName,
                 responseID);
         if (requestID != responseID) {
-            logger.warn("Gateway response with {} {} unexpected as query asked for {} {}.", idName, requestID, idName,
-                    responseID);
+            logger.warn("Query asked for {} {} but KLF200 answered with {}.", idName, requestID, responseID);
             return false;
         }
         logger.trace("check4matchingAnyID() returns {}.", true);
@@ -161,4 +175,32 @@ public class KLF200Response {
                 cfmSessionID);
         return check4matchingAnyID(logger, "SessionID", reqSessionID, cfmSessionID);
     }
+
+    /**
+     * Check the content of the response packet against a set of expected answers.
+     *
+     * @param logger Instantiated logging class to be used for output.
+     * @param stateMachine The complete definition of this state machine.
+     * @param currentState The actual state of the state machine.
+     * @param responseCommand The command byte of the response packet.
+     * @return <b>answerIsExpected</b> of type boolean which signals the validity of the answer.
+     */
+    public static boolean isExpectedAnswer(Logger logger, Map<KLF200Handshake.State, Set<Command>> stateMachine,
+            KLF200Handshake.State currentState, short responseCommand) {
+        Command answer = Command.get(responseCommand);
+        if (!stateMachine.containsKey(currentState)) {
+            logger.warn("{} isExpectedAnswer() has been called for an unregistered state {}.",
+                    VeluxBindingConstants.LOGGING_CONTACT, currentState);
+            return false;
+        } else if (!stateMachine.get(currentState).contains(answer)) {
+            logger.warn(
+                    "isExpectedAnswer() return false as got unexpected response {} within state {} (stateMachine is {}).",
+                    answer, currentState, stateMachine);
+            return false;
+        } else {
+            logger.trace("isExpectedAnswer({}) returns true.", answer);
+            return true;
+        }
+    }
+
 }
