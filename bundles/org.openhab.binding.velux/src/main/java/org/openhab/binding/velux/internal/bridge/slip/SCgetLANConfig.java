@@ -12,8 +12,13 @@
  */
 package org.openhab.binding.velux.internal.bridge.slip;
 
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Set;
+
 import org.eclipse.jdt.annotation.NonNullByDefault;
 import org.openhab.binding.velux.internal.bridge.common.GetLANConfig;
+import org.openhab.binding.velux.internal.bridge.slip.utils.KLF200Handshake;
 import org.openhab.binding.velux.internal.bridge.slip.utils.KLF200Response;
 import org.openhab.binding.velux.internal.bridge.slip.utils.Packet;
 import org.openhab.binding.velux.internal.things.VeluxGwLAN;
@@ -53,6 +58,18 @@ class SCgetLANConfig extends GetLANConfig implements SlipBridgeCommunicationProt
 
     /*
      * ===========================================================
+     * Constant Objects
+     */
+
+    private static final Map<KLF200Handshake.State, Set<Command>> STATEMACHINE;
+    static {
+        STATEMACHINE = new HashMap<KLF200Handshake.State, Set<Command>>();
+        STATEMACHINE.put(KLF200Handshake.State.WAIT4CONFIRMATION,
+                KLF200Handshake.build(Command.GW_GET_NETWORK_SETUP_CFM));
+    }
+
+    /*
+     * ===========================================================
      * Message Content Parameters
      */
 
@@ -73,8 +90,7 @@ class SCgetLANConfig extends GetLANConfig implements SlipBridgeCommunicationProt
      * Result Objects
      */
 
-    private boolean success = false;
-    private boolean finished = false;
+    private KLF200Handshake.State currentState = KLF200Handshake.State.IDLE;
 
     /*
      * ===========================================================
@@ -88,9 +104,9 @@ class SCgetLANConfig extends GetLANConfig implements SlipBridgeCommunicationProt
 
     @Override
     public CommandNumber getRequestCommand() {
-        success = false;
-        finished = false;
-        logger.debug("getRequestCommand() returns {} ({}).", COMMAND.name(), COMMAND.getCommand());
+        setCommunicationUnfinishedAndUnsuccessful();
+        currentState = KLF200Handshake.State.WAIT4CONFIRMATION;
+        KLF200Response.requestLogging(logger, COMMAND);
         return COMMAND.getCommand();
     }
 
@@ -101,39 +117,33 @@ class SCgetLANConfig extends GetLANConfig implements SlipBridgeCommunicationProt
     }
 
     @Override
-    public void setResponse(short responseCommand, byte[] thisResponseData, boolean isSequentialEnforced) {
+    public boolean setResponse(short responseCommand, byte[] thisResponseData, boolean isSequentialEnforced) {
         KLF200Response.introLogging(logger, responseCommand, thisResponseData);
-        success = false;
-        finished = false;
+        setCommunicationUnfinishedAndUnsuccessful();
+        if (!KLF200Response.isExpectedAnswer(logger, STATEMACHINE, currentState, responseCommand)) {
+            return false;
+        }
         Packet responseData = new Packet(thisResponseData);
         switch (Command.get(responseCommand)) {
             case GW_GET_NETWORK_SETUP_CFM:
-                finished = true;
                 if (!KLF200Response.isLengthValid(logger, responseCommand, thisResponseData, 13)) {
+                    setCommunicationUnsuccessfullyFinished();
                     break;
                 }
                 cfmIpAddress = responseData.getFourByteValue(0);
                 cfmMask = responseData.getFourByteValue(4);
                 cfmDefGW = responseData.getFourByteValue(8);
                 cfmDHCP = responseData.getOneByteValue(12) == 0 ? false : true;
-                success = true;
+                setCommunicationSuccessfullyFinished();
                 break;
 
             default:
                 KLF200Response.errorLogging(logger, responseCommand);
-                finished = true;
+                setCommunicationUnsuccessfullyFinished();
+
         }
-        KLF200Response.outroLogging(logger, success, finished);
-    }
-
-    @Override
-    public boolean isCommunicationFinished() {
-        return finished;
-    }
-
-    @Override
-    public boolean isCommunicationSuccessful() {
-        return success;
+        KLF200Response.outroLogging(logger, isCommunicationSuccessful, isHandshakeFinished);
+        return true;
     }
 
     /*

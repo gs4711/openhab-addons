@@ -12,8 +12,13 @@
  */
 package org.openhab.binding.velux.internal.bridge.slip;
 
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Set;
+
 import org.eclipse.jdt.annotation.NonNullByDefault;
 import org.openhab.binding.velux.internal.bridge.common.GetProducts;
+import org.openhab.binding.velux.internal.bridge.slip.utils.KLF200Handshake;
 import org.openhab.binding.velux.internal.bridge.slip.utils.KLF200Response;
 import org.openhab.binding.velux.internal.bridge.slip.utils.Packet;
 import org.openhab.binding.velux.internal.things.VeluxKLFAPI.Command;
@@ -57,6 +62,23 @@ class SCgetProducts extends GetProducts implements SlipBridgeCommunicationProtoc
 
     /*
      * ===========================================================
+     * Constant Objects
+     */
+
+    private static final Map<KLF200Handshake.State, Set<Command>> STATEMACHINE;
+    static {
+        STATEMACHINE = new HashMap<KLF200Handshake.State, Set<Command>>();
+        STATEMACHINE.put(KLF200Handshake.State.IDLE, KLF200Handshake.build());
+        STATEMACHINE.put(KLF200Handshake.State.WAIT4CONFIRMATION,
+                KLF200Handshake.build(Command.GW_GET_ALL_NODES_INFORMATION_CFM));
+        STATEMACHINE.put(KLF200Handshake.State.WAIT4NOTIFICATION,
+                KLF200Handshake.build(Command.GW_GET_ALL_NODES_INFORMATION_NTF));
+        STATEMACHINE.put(KLF200Handshake.State.WAIT4FINISH,
+                KLF200Handshake.build(Command.GW_GET_ALL_NODES_INFORMATION_FINISHED_NTF));
+    }
+
+    /*
+     * ===========================================================
      * Message Objects
      */
 
@@ -67,8 +89,7 @@ class SCgetProducts extends GetProducts implements SlipBridgeCommunicationProtoc
      * Result Objects
      */
 
-    private boolean success = false;
-    private boolean finished = false;
+    private KLF200Handshake.State currentState = KLF200Handshake.State.IDLE;
 
     private VeluxProduct[] productArray = new VeluxProduct[0];
     private int totalNumberOfProducts = 0;
@@ -86,9 +107,9 @@ class SCgetProducts extends GetProducts implements SlipBridgeCommunicationProtoc
 
     @Override
     public CommandNumber getRequestCommand() {
-        success = false;
-        finished = false;
-        logger.debug("getRequestCommand() returns {} ({}).", COMMAND.name(), COMMAND.getCommand());
+        setCommunicationUnfinishedAndUnsuccessful();
+        currentState = KLF200Handshake.State.WAIT4CONFIRMATION;
+        KLF200Response.requestLogging(logger, COMMAND);
         return COMMAND.getCommand();
     }
 
@@ -99,16 +120,18 @@ class SCgetProducts extends GetProducts implements SlipBridgeCommunicationProtoc
     }
 
     @Override
-    public void setResponse(short responseCommand, byte[] thisResponseData, boolean isSequentialEnforced) {
+    public boolean setResponse(short responseCommand, byte[] thisResponseData, boolean isSequentialEnforced) {
         KLF200Response.introLogging(logger, responseCommand, thisResponseData);
-        success = false;
-        finished = false;
+        setCommunicationUnfinishedAndUnsuccessful();
+        if (!KLF200Response.isExpectedAnswer(logger, STATEMACHINE, currentState, responseCommand)) {
+            return false;
+        }
         Packet responseData = new Packet(thisResponseData);
         switch (Command.get(responseCommand)) {
             case GW_GET_ALL_NODES_INFORMATION_CFM:
                 logger.trace("setResponse(): got GW_GET_ALL_NODES_INFORMATION_CFM.");
                 if (!KLF200Response.isLengthValid(logger, responseCommand, thisResponseData, 2)) {
-                    finished = true;
+                    setCommunicationUnsuccessfullyFinished();
                     break;
                 }
                 int cfmStatus = responseData.getOneByteValue(0);
@@ -124,30 +147,32 @@ class SCgetProducts extends GetProducts implements SlipBridgeCommunicationProtoc
                         logger.trace("setResponse(): returned status: OK - Request accepted.");
                         totalNumberOfProducts = cfmTotalNumberOfNodes;
                         productArray = new VeluxProduct[totalNumberOfProducts];
+                        currentState = KLF200Handshake.State.WAIT4NOTIFICATION;
                         break;
                     case 1:
                         logger.trace("setResponse(): returned status: Error – System table empty.");
-                        finished = true;
+                        setCommunicationUnsuccessfullyFinished();
                         break;
                     default:
-                        finished = true;
                         logger.warn("setResponse({}): returned status={} (Reserved/unknown).",
                                 Command.get(responseCommand).toString(), cfmStatus);
+                        setCommunicationUnsuccessfullyFinished();
                         break;
                 }
                 break;
+
             case GW_GET_ALL_NODES_INFORMATION_NTF:
                 logger.trace("setResponse(): got GW_GET_ALL_NODES_INFORMATION_NTF.");
                 if (!KLF200Response.isLengthValid(logger, responseCommand, thisResponseData, 124)) {
-                    finished = true;
+                    setCommunicationUnsuccessfullyFinished();
                     break;
                 }
-                if (productArray.length == 0) {
-                    logger.warn("setResponse({}): sequence of answers unexpected.",
-                            Command.get(responseCommand).toString());
-                    finished = true;
-                    break;
-                }
+                // if (productArray.length == 0) {
+                // logger.warn("setResponse({}): sequence of answers unexpected.",
+                // Command.get(responseCommand).toString());
+                // finished = true;
+                // break;
+                // }
                 // Extracting information items
                 int ntfNodeID = responseData.getOneByteValue(0);
                 logger.trace("setResponse(): ntfNodeID={}.", ntfNodeID);
@@ -209,13 +234,13 @@ class SCgetProducts extends GetProducts implements SlipBridgeCommunicationProtoc
 
                 if ((ntfName.length() == 0) || ntfName.startsWith("_")) {
                     ntfName = "#".concat(String.valueOf(ntfNodeID));
-                    logger.debug("setResponse(): device provided invalid name, using '{}' instead.", ntfName);
+                    logger.trace("setResponse(): device provided invalid name, using '{}' instead.", ntfName);
                 }
 
                 String commonSerialNumber = VeluxProductSerialNo.toString(ntfSerialNumber);
                 if (VeluxProductSerialNo.isInvalid(ntfSerialNumber)) {
                     commonSerialNumber = new String(ntfName);
-                    logger.debug("setResponse(): device provided invalid serial number, using name '{}' instead.",
+                    logger.trace("setResponse(): device provided invalid serial number, using name '{}' instead.",
                             commonSerialNumber);
                 }
 
@@ -229,31 +254,23 @@ class SCgetProducts extends GetProducts implements SlipBridgeCommunicationProtoc
                     logger.warn("setResponse(): expected {} products, received one more, ignoring it.",
                             totalNumberOfProducts);
                 }
-                success = true;
+                if (nextProductArrayItem == totalNumberOfProducts) {
+                    currentState = KLF200Handshake.State.WAIT4FINISH;
+                }
                 break;
 
             case GW_GET_ALL_NODES_INFORMATION_FINISHED_NTF:
                 logger.trace("setResponse(): got GW_GET_ALL_NODES_INFORMATION_FINISHED_NTF.");
                 logger.debug("setResponse(): finished-packet received.");
-                success = true;
-                finished = true;
+                setCommunicationSuccessfullyFinished();
                 break;
 
             default:
                 KLF200Response.errorLogging(logger, responseCommand);
-                finished = true;
+                setCommunicationUnsuccessfullyFinished();
         }
-        KLF200Response.outroLogging(logger, success, finished);
-    }
-
-    @Override
-    public boolean isCommunicationFinished() {
-        return finished;
-    }
-
-    @Override
-    public boolean isCommunicationSuccessful() {
-        return success;
+        KLF200Response.outroLogging(logger, isCommunicationSuccessful, isHandshakeFinished);
+        return true;
     }
 
     /*
@@ -264,7 +281,7 @@ class SCgetProducts extends GetProducts implements SlipBridgeCommunicationProtoc
 
     @Override
     public VeluxProduct[] getProducts() {
-        if (success && finished) {
+        if (isCommunicationSuccessful && isHandshakeFinished) {
             logger.trace("getProducts(): returning array of {} products.", productArray.length);
             return productArray;
         } else {

@@ -12,8 +12,14 @@
  */
 package org.openhab.binding.velux.internal.bridge.slip;
 
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Set;
+
 import org.eclipse.jdt.annotation.NonNullByDefault;
 import org.openhab.binding.velux.internal.bridge.common.RunProductSearch;
+import org.openhab.binding.velux.internal.bridge.slip.utils.KLF200Handshake;
+import org.openhab.binding.velux.internal.bridge.slip.utils.KLF200Response;
 import org.openhab.binding.velux.internal.bridge.slip.utils.Packet;
 import org.openhab.binding.velux.internal.things.VeluxGwState;
 import org.openhab.binding.velux.internal.things.VeluxKLFAPI.Command;
@@ -52,12 +58,32 @@ class SCrunProductSearch extends RunProductSearch implements SlipBridgeCommunica
     private static final Command COMMAND = Command.GW_GET_STATE_REQ;
 
     /*
+     * ===========================================================
+     * Constant Objects
+     */
+
+    private static final Map<KLF200Handshake.State, Set<Command>> STATEMACHINE;
+    static {
+        STATEMACHINE = new HashMap<KLF200Handshake.State, Set<Command>>();
+        STATEMACHINE.put(KLF200Handshake.State.IDLE, KLF200Handshake.build());
+        STATEMACHINE.put(KLF200Handshake.State.WAIT4CONFIRMATION, KLF200Handshake.build(Command.GW_WINK_SEND_CFM));
+    }
+
+    /*
+     * ===========================================================
      * Message Objects
      */
 
     private byte[] requestData = new byte[0];
     private short responseCommand;
     private byte[] responseData = new byte[0];
+
+    /*
+     * ===========================================================
+     * Result Objects
+     */
+
+    private KLF200Handshake.State currentState = KLF200Handshake.State.IDLE;
 
     /*
      * ===========================================================
@@ -71,6 +97,9 @@ class SCrunProductSearch extends RunProductSearch implements SlipBridgeCommunica
 
     @Override
     public CommandNumber getRequestCommand() {
+        setCommunicationUnfinishedAndUnsuccessful();
+        currentState = KLF200Handshake.State.WAIT4CONFIRMATION;
+        KLF200Response.requestLogging(logger, COMMAND);
         return COMMAND.getCommand();
     }
 
@@ -81,20 +110,11 @@ class SCrunProductSearch extends RunProductSearch implements SlipBridgeCommunica
     }
 
     @Override
-    public void setResponse(short thisResponseCommand, byte[] thisResponseData, boolean isSequentialEnforced) {
+    public boolean setResponse(short thisResponseCommand, byte[] thisResponseData, boolean isSequentialEnforced) {
         logger.trace("setResponseCommand({}, {}) called.", thisResponseCommand, new Packet(thisResponseData));
         responseCommand = thisResponseCommand;
         responseData = thisResponseData;
-    }
-
-    @Override
-    public boolean isCommunicationFinished() {
-        return (responseCommand == Command.GW_GET_STATE_CFM.getShort());
-    }
-
-    @Override
-    public boolean isCommunicationSuccessful() {
-        return (responseCommand == Command.GW_GET_STATE_CFM.getShort());
+        return true;
     }
 
     /*

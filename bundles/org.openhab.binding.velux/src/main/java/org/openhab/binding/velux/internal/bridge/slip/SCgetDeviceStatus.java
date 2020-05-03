@@ -12,8 +12,13 @@
  */
 package org.openhab.binding.velux.internal.bridge.slip;
 
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Set;
+
 import org.eclipse.jdt.annotation.NonNullByDefault;
 import org.openhab.binding.velux.internal.bridge.common.GetDeviceStatus;
+import org.openhab.binding.velux.internal.bridge.slip.utils.KLF200Handshake;
 import org.openhab.binding.velux.internal.bridge.slip.utils.KLF200Response;
 import org.openhab.binding.velux.internal.bridge.slip.utils.Packet;
 import org.openhab.binding.velux.internal.things.VeluxGwState;
@@ -53,12 +58,22 @@ class SCgetDeviceStatus extends GetDeviceStatus implements SlipBridgeCommunicati
 
     /*
      * ===========================================================
+     * Constant Objects
+     */
+
+    private static final Map<KLF200Handshake.State, Set<Command>> STATEMACHINE;
+    static {
+        STATEMACHINE = new HashMap<KLF200Handshake.State, Set<Command>>();
+        STATEMACHINE.put(KLF200Handshake.State.WAIT4CONFIRMATION, KLF200Handshake.build(Command.GW_GET_STATE_CFM));
+    }
+
+    /*
+     * ===========================================================
      * Message Content Parameters
      */
 
     private int cfmGatewayState;
     private int cfmSubState;
-    @SuppressWarnings("unused")
     private int cfmStateData;
 
     /*
@@ -73,8 +88,7 @@ class SCgetDeviceStatus extends GetDeviceStatus implements SlipBridgeCommunicati
      * Result Objects
      */
 
-    private boolean success = false;
-    private boolean finished = false;
+    private KLF200Handshake.State currentState = KLF200Handshake.State.IDLE;
 
     /*
      * ===========================================================
@@ -88,9 +102,9 @@ class SCgetDeviceStatus extends GetDeviceStatus implements SlipBridgeCommunicati
 
     @Override
     public CommandNumber getRequestCommand() {
-        success = false;
-        finished = false;
-        logger.debug("getRequestCommand() returns {} ({}).", COMMAND.name(), COMMAND.getCommand());
+        setCommunicationUnfinishedAndUnsuccessful();
+        currentState = KLF200Handshake.State.WAIT4CONFIRMATION;
+        KLF200Response.requestLogging(logger, COMMAND);
         return COMMAND.getCommand();
     }
 
@@ -102,39 +116,34 @@ class SCgetDeviceStatus extends GetDeviceStatus implements SlipBridgeCommunicati
     }
 
     @Override
-    public void setResponse(short responseCommand, byte[] thisResponseData, boolean isSequentialEnforced) {
+    public boolean setResponse(short responseCommand, byte[] thisResponseData, boolean isSequentialEnforced) {
         KLF200Response.introLogging(logger, responseCommand, thisResponseData);
-        success = false;
-        finished = false;
+        setCommunicationUnfinishedAndUnsuccessful();
+        if (!KLF200Response.isExpectedAnswer(logger, STATEMACHINE, currentState, responseCommand)) {
+            return false;
+        }
         Packet responseData = new Packet(thisResponseData);
         switch (Command.get(responseCommand)) {
             case GW_GET_STATE_CFM:
                 if (!KLF200Response.isLengthValid(logger, responseCommand, thisResponseData, 6)) {
-                    finished = true;
+                    setCommunicationUnsuccessfullyFinished();
                     break;
                 }
                 cfmGatewayState = responseData.getOneByteValue(0);
                 cfmSubState = responseData.getOneByteValue(1);
                 cfmStateData = responseData.getFourByteValue(2);
-                finished = true;
-                success = true;
+                logger.trace("setResponse(): cfmGatewayState={}.", cfmGatewayState);
+                logger.trace("setResponse(): cfmSubState={}.", cfmSubState);
+                logger.trace("setResponse(): cfmStateData={}.", cfmStateData);
+                setCommunicationSuccessfullyFinished();
                 break;
 
             default:
                 KLF200Response.errorLogging(logger, responseCommand);
-                finished = true;
+                setCommunicationUnsuccessfullyFinished();
         }
-        KLF200Response.outroLogging(logger, success, finished);
-    }
-
-    @Override
-    public boolean isCommunicationFinished() {
-        return finished;
-    }
-
-    @Override
-    public boolean isCommunicationSuccessful() {
-        return success;
+        KLF200Response.outroLogging(logger, isCommunicationSuccessful, isHandshakeFinished);
+        return true;
     }
 
     /*

@@ -12,14 +12,19 @@
  */
 package org.openhab.binding.velux.internal.bridge.slip;
 
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Set;
+
 import org.eclipse.jdt.annotation.NonNullByDefault;
 import org.openhab.binding.velux.internal.bridge.common.GetScenes;
+import org.openhab.binding.velux.internal.bridge.slip.utils.KLF200Handshake;
 import org.openhab.binding.velux.internal.bridge.slip.utils.KLF200Response;
 import org.openhab.binding.velux.internal.bridge.slip.utils.Packet;
-import org.openhab.binding.velux.internal.things.VeluxProductState;
-import org.openhab.binding.velux.internal.things.VeluxScene;
 import org.openhab.binding.velux.internal.things.VeluxKLFAPI.Command;
 import org.openhab.binding.velux.internal.things.VeluxKLFAPI.CommandNumber;
+import org.openhab.binding.velux.internal.things.VeluxProductState;
+import org.openhab.binding.velux.internal.things.VeluxScene;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -54,11 +59,23 @@ class SCgetScenes extends GetScenes implements SlipBridgeCommunicationProtocol {
     private static final Command COMMAND = Command.GW_GET_SCENE_LIST_REQ;
 
     /*
+     * ===========================================================
+     * Constant Objects
+     */
+
+    private static final Map<KLF200Handshake.State, Set<Command>> STATEMACHINE;
+    static {
+        STATEMACHINE = new HashMap<KLF200Handshake.State, Set<Command>>();
+        STATEMACHINE.put(KLF200Handshake.State.IDLE, KLF200Handshake.build());
+        STATEMACHINE.put(KLF200Handshake.State.WAIT4CONFIRMATION, KLF200Handshake.build(Command.GW_GET_SCENE_LIST_CFM));
+        STATEMACHINE.put(KLF200Handshake.State.WAIT4NOTIFICATION, KLF200Handshake.build(Command.GW_GET_SCENE_LIST_NTF));
+    }
+
+    /*
      * Message Objects
      */
 
-    private boolean success;
-    private boolean finished;
+    private KLF200Handshake.State currentState = KLF200Handshake.State.IDLE;
 
     private int sceneIdx;
     private VeluxScene[] scenes = new VeluxScene[0];
@@ -75,9 +92,9 @@ class SCgetScenes extends GetScenes implements SlipBridgeCommunicationProtocol {
 
     @Override
     public CommandNumber getRequestCommand() {
-        success = false;
-        finished = false;
-        logger.debug("getRequestCommand() returns {} ({}).", COMMAND.name(), COMMAND.getCommand());
+        setCommunicationUnfinishedAndUnsuccessful();
+        currentState = KLF200Handshake.State.WAIT4CONFIRMATION;
+        KLF200Response.requestLogging(logger, COMMAND);
         return COMMAND.getCommand();
     }
 
@@ -87,46 +104,47 @@ class SCgetScenes extends GetScenes implements SlipBridgeCommunicationProtocol {
     }
 
     @Override
-    public void setResponse(short responseCommand, byte[] thisResponseData, boolean isSequentialEnforced) {
+    public boolean setResponse(short responseCommand, byte[] thisResponseData, boolean isSequentialEnforced) {
         KLF200Response.introLogging(logger, responseCommand, thisResponseData);
-        success = false;
-        finished = false;
+        setCommunicationUnfinishedAndUnsuccessful();
+        if (!KLF200Response.isExpectedAnswer(logger, STATEMACHINE, currentState, responseCommand)) {
+            return false;
+        }
         Packet responseData = new Packet(thisResponseData);
         switch (Command.get(responseCommand)) {
             case GW_GET_SCENE_LIST_CFM:
                 if (!KLF200Response.isLengthValid(logger, responseCommand, thisResponseData, 1)) {
-                    finished = true;
+                    setCommunicationUnsuccessfullyFinished();
                     break;
                 }
                 int ntfTotalNumberOfObjects = responseData.getOneByteValue(0);
                 scenes = new VeluxScene[ntfTotalNumberOfObjects];
                 if (ntfTotalNumberOfObjects == 0) {
                     logger.trace("setResponse(): no scenes defined.");
-                    success = true;
-                    finished = true;
-                } else {
-                    logger.trace("setResponse(): {} scenes defined.", ntfTotalNumberOfObjects);
+                    setCommunicationSuccessfullyFinished();
                 }
+                logger.trace("setResponse(): {} scenes defined.", ntfTotalNumberOfObjects);
+                currentState = KLF200Handshake.State.WAIT4NOTIFICATION;
                 sceneIdx = 0;
                 break;
+
             case GW_GET_SCENE_LIST_NTF:
                 if (thisResponseData.length < 1) {
                     logger.trace("setResponse(): malformed response packet (length is {} less than one).",
                             thisResponseData.length);
-                    finished = true;
+                    setCommunicationUnsuccessfullyFinished();
                     break;
                 }
                 int ntfNumberOfObject = responseData.getOneByteValue(0);
                 logger.trace("setResponse(): NTF number of objects={}.", ntfNumberOfObject);
                 if (ntfNumberOfObject == 0) {
                     logger.trace("setResponse(): finished.");
-                    finished = true;
-                    success = true;
+                    setCommunicationSuccessfullyFinished();
                 }
                 if (thisResponseData.length != (2 + 65 * ntfNumberOfObject)) {
                     logger.trace("setResponse(): malformed response packet (real length {}, expected length {}).",
                             thisResponseData.length, (2 + 65 * ntfNumberOfObject));
-                    finished = true;
+                    setCommunicationUnsuccessfullyFinished();
                     break;
                 }
                 for (int objectIndex = 0; objectIndex < ntfNumberOfObject; objectIndex++) {
@@ -140,25 +158,15 @@ class SCgetScenes extends GetScenes implements SlipBridgeCommunicationProtocol {
                 logger.trace("setResponse(): {} scenes remaining.", ntfRemainingNumberOfObject);
                 if (ntfRemainingNumberOfObject == 0) {
                     logger.trace("setResponse(): finished.");
-                    finished = true;
-                    success = true;
+                    setCommunicationSuccessfullyFinished();
                 }
                 break;
             default:
                 KLF200Response.errorLogging(logger, responseCommand);
-                finished = true;
+                setCommunicationUnsuccessfullyFinished();
         }
-        KLF200Response.outroLogging(logger, success, finished);
-    }
-
-    @Override
-    public boolean isCommunicationFinished() {
-        return finished;
-    }
-
-    @Override
-    public boolean isCommunicationSuccessful() {
-        return success;
+        KLF200Response.outroLogging(logger, isCommunicationSuccessful, isHandshakeFinished);
+        return true;
     }
 
     /**

@@ -12,9 +12,14 @@
  */
 package org.openhab.binding.velux.internal.bridge.slip;
 
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Set;
+
 import org.eclipse.jdt.annotation.NonNullByDefault;
 import org.openhab.binding.velux.internal.bridge.common.BridgeCommunicationProtocol;
 import org.openhab.binding.velux.internal.bridge.common.GetHouseStatus;
+import org.openhab.binding.velux.internal.bridge.slip.utils.KLF200Handshake;
 import org.openhab.binding.velux.internal.bridge.slip.utils.KLF200Response;
 import org.openhab.binding.velux.internal.bridge.slip.utils.Packet;
 import org.openhab.binding.velux.internal.things.VeluxKLFAPI.Command;
@@ -57,6 +62,17 @@ class SCgetHouseStatus extends GetHouseStatus implements BridgeCommunicationProt
 
     /*
      * ===========================================================
+     * Constant Objects
+     */
+
+    private static final Map<KLF200Handshake.State, Set<Command>> STATEMACHINE;
+    static {
+        STATEMACHINE = new HashMap<KLF200Handshake.State, Set<Command>>();
+        STATEMACHINE.put(KLF200Handshake.State.WAIT4NOTIFICATION,
+                KLF200Handshake.build(Command.GW_NODE_STATE_POSITION_CHANGED_NTF));
+    }
+    /*
+     * ===========================================================
      * Message Objects
      */
 
@@ -68,8 +84,7 @@ class SCgetHouseStatus extends GetHouseStatus implements BridgeCommunicationProt
      * Result Objects
      */
 
-    private boolean success = false;
-    private boolean finished = false;
+    private KLF200Handshake.State currentState = KLF200Handshake.State.WAIT4NOTIFICATION;
 
     private int ntfNodeID;
     private int ntfState;
@@ -88,7 +103,9 @@ class SCgetHouseStatus extends GetHouseStatus implements BridgeCommunicationProt
 
     @Override
     public CommandNumber getRequestCommand() {
-        logger.debug("getRequestCommand() returns {} ({}).", COMMAND.name(), COMMAND.getCommand());
+        setCommunicationUnfinishedAndUnsuccessful();
+        currentState = KLF200Handshake.State.WAIT4NOTIFICATION;
+        KLF200Response.requestLogging(logger, COMMAND);
         return COMMAND.getCommand();
     }
 
@@ -98,27 +115,26 @@ class SCgetHouseStatus extends GetHouseStatus implements BridgeCommunicationProt
     }
 
     @Override
-    public void setResponse(short responseCommand, byte[] thisResponseData, boolean isSequentialEnforced) {
+    public boolean setResponse(short responseCommand, byte[] thisResponseData, boolean isSequentialEnforced) {
         KLF200Response.introLogging(logger, responseCommand, thisResponseData);
-        success = false;
-        finished = true;
+        setCommunicationUnfinishedAndUnsuccessful();
+        if (!KLF200Response.isExpectedAnswer(logger, STATEMACHINE, currentState, responseCommand)) {
+            return false;
+        }
         Packet responseData = new Packet(thisResponseData);
         switch (Command.get(responseCommand)) {
             case GW_NODE_STATE_POSITION_CHANGED_NTF:
                 if (!KLF200Response.isLengthValid(logger, responseCommand, thisResponseData, 20)) {
+                    setCommunicationUnfinishedAndUnsuccessful();
                     break;
                 }
                 ntfNodeID = responseData.getOneByteValue(0);
                 ntfState = responseData.getOneByteValue(1);
                 ntfCurrentPosition = responseData.getTwoByteValue(2);
                 ntfTarget = responseData.getTwoByteValue(4);
-                @SuppressWarnings("unused")
                 int ntfFP1CurrentPosition = responseData.getTwoByteValue(6);
-                @SuppressWarnings("unused")
                 int ntfFP2CurrentPosition = responseData.getTwoByteValue(8);
-                @SuppressWarnings("unused")
                 int ntfFP3CurrentPosition = responseData.getTwoByteValue(10);
-                @SuppressWarnings("unused")
                 int ntfFP4CurrentPosition = responseData.getTwoByteValue(12);
                 int ntfRemainingTime = responseData.getTwoByteValue(14);
                 int ntfTimeStamp = responseData.getFourByteValue(16);
@@ -126,25 +142,21 @@ class SCgetHouseStatus extends GetHouseStatus implements BridgeCommunicationProt
                 logger.trace("setResponse(): ntfNodeID={}.", ntfNodeID);
                 logger.trace("setResponse(): ntfState={}.", ntfState);
                 logger.trace("setResponse(): ntfCurrentPosition={}.", ntfCurrentPosition);
+                logger.trace("setResponse(): ntfFP1CurrentPosition={}.", ntfFP1CurrentPosition);
+                logger.trace("setResponse(): ntfFP2CurrentPosition={}.", ntfFP2CurrentPosition);
+                logger.trace("setResponse(): ntfFP3CurrentPosition={}.", ntfFP3CurrentPosition);
+                logger.trace("setResponse(): ntfFP4CurrentPosition={}.", ntfFP4CurrentPosition);
                 logger.trace("setResponse(): ntfTarget={}.", ntfTarget);
                 logger.trace("setResponse(): ntfRemainingTime={}.", ntfRemainingTime);
                 logger.trace("setResponse(): ntfTimeStamp={}.", ntfTimeStamp);
-                success = true;
+                setCommunicationSuccessfullyFinished();
                 break;
 
             default:
                 KLF200Response.errorLogging(logger, responseCommand);
+                setCommunicationUnfinishedAndUnsuccessful();
         }
-        KLF200Response.outroLogging(logger, success, finished);
-    }
-
-    @Override
-    public boolean isCommunicationFinished() {
-        return true;
-    }
-
-    @Override
-    public boolean isCommunicationSuccessful() {
+        KLF200Response.outroLogging(logger, isCommunicationSuccessful, isHandshakeFinished);
         return true;
     }
 

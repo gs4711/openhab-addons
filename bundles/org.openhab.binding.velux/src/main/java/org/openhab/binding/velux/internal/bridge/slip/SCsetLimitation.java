@@ -12,10 +12,14 @@
  */
 package org.openhab.binding.velux.internal.bridge.slip;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Random;
+import java.util.Set;
 
 import org.eclipse.jdt.annotation.NonNullByDefault;
 import org.openhab.binding.velux.internal.bridge.common.SetProductLimitation;
+import org.openhab.binding.velux.internal.bridge.slip.utils.KLF200Handshake;
 import org.openhab.binding.velux.internal.bridge.slip.utils.KLF200Response;
 import org.openhab.binding.velux.internal.bridge.slip.utils.Packet;
 import org.openhab.binding.velux.internal.things.VeluxKLFAPI.Command;
@@ -56,6 +60,23 @@ class SCsetLimitation extends SetProductLimitation implements SlipBridgeCommunic
 
     /*
      * ===========================================================
+     * Constant Objects
+     */
+
+    private static final Map<KLF200Handshake.State, Set<Command>> STATEMACHINE;
+    static {
+        STATEMACHINE = new HashMap<KLF200Handshake.State, Set<Command>>();
+        STATEMACHINE.put(KLF200Handshake.State.IDLE, KLF200Handshake.build());
+        STATEMACHINE.put(KLF200Handshake.State.WAIT4CONFIRMATION, KLF200Handshake.build(Command.GW_SET_LIMITATION_CFM));
+        STATEMACHINE.put(KLF200Handshake.State.WAIT4NOTIFICATION,
+                KLF200Handshake.build(Command.GW_LIMITATION_STATUS_NTF));
+        STATEMACHINE.put(KLF200Handshake.State.WAIT4NOTIFICATION2,
+                KLF200Handshake.build(Command.GW_COMMAND_RUN_STATUS_NTF));
+        STATEMACHINE.put(KLF200Handshake.State.WAIT4FINISH, KLF200Handshake.build(Command.GW_SESSION_FINISHED_NTF));
+    }
+
+    /*
+     * ===========================================================
      * Message Content Parameters
      */
 
@@ -82,8 +103,7 @@ class SCsetLimitation extends SetProductLimitation implements SlipBridgeCommunic
      * Result Objects
      */
 
-    private boolean success = false;
-    private boolean finished = false;
+    private KLF200Handshake.State currentState = KLF200Handshake.State.IDLE;
 
     /*
      * ===========================================================
@@ -109,9 +129,9 @@ class SCsetLimitation extends SetProductLimitation implements SlipBridgeCommunic
 
     @Override
     public CommandNumber getRequestCommand() {
-        success = false;
-        finished = false;
-        logger.debug("getRequestCommand() returns {} ({}).", COMMAND.name(), COMMAND.getCommand());
+        setCommunicationUnfinishedAndUnsuccessful();
+        currentState = KLF200Handshake.State.WAIT4CONFIRMATION;
+        KLF200Response.requestLogging(logger, COMMAND);
         return COMMAND.getCommand();
     }
 
@@ -143,15 +163,17 @@ class SCsetLimitation extends SetProductLimitation implements SlipBridgeCommunic
     }
 
     @Override
-    public void setResponse(short responseCommand, byte[] thisResponseData, boolean isSequentialEnforced) {
+    public boolean setResponse(short responseCommand, byte[] thisResponseData, boolean isSequentialEnforced) {
         KLF200Response.introLogging(logger, responseCommand, thisResponseData);
-        success = false;
-        finished = false;
+        setCommunicationUnfinishedAndUnsuccessful();
+        if (!KLF200Response.isExpectedAnswer(logger, STATEMACHINE, currentState, responseCommand)) {
+            return false;
+        }
         Packet responseData = new Packet(thisResponseData);
         switch (Command.get(responseCommand)) {
             case GW_SET_LIMITATION_CFM:
                 if (!KLF200Response.isLengthValid(logger, responseCommand, thisResponseData, 3)) {
-                    finished = true;
+                    setCommunicationUnsuccessfullyFinished();
                     break;
                 }
                 int cfmSessionID = responseData.getTwoByteValue(0);
@@ -159,17 +181,18 @@ class SCsetLimitation extends SetProductLimitation implements SlipBridgeCommunic
                 switch (cfmStatus) {
                     case 0:
                         logger.info("setResponse(): returned status: Error – Command rejected.");
-                        finished = true;
+                        setCommunicationUnsuccessfullyFinished();
                         break;
                     case 1:
                         logger.debug("setResponse(): returned status: OK - Command is accepted.");
                         if (!KLF200Response.check4matchingSessionID(logger, cfmSessionID, reqSessionID)) {
-                            finished = true;
+                            return false;
                         }
+                        currentState = KLF200Handshake.State.WAIT4NOTIFICATION;
                         break;
                     default:
                         logger.warn("setResponse(): returned status={} (not defined).", cfmStatus);
-                        finished = true;
+                        setCommunicationUnsuccessfullyFinished();
                         break;
                 }
                 break;
@@ -194,20 +217,15 @@ class SCsetLimitation extends SetProductLimitation implements SlipBridgeCommunic
                 logger.trace("setResponse(): ntfLimitationTime={}.", ntfLimitationTime);
 
                 if (!KLF200Response.check4matchingSessionID(logger, ntfSessionID, reqSessionID)) {
-                    finished = true;
+                    setCommunicationUnsuccessfullyFinished();
                     break;
                 }
-                success = true;
-                if (!isSequentialEnforced) {
-                    logger.trace(
-                            "setResponse(): skipping wait for more packets as sequential processing is not enforced.");
-                    finished = true;
-                }
+                currentState = KLF200Handshake.State.WAIT4NOTIFICATION2;
                 break;
 
             case GW_COMMAND_RUN_STATUS_NTF:
                 if (!KLF200Response.isLengthValid(logger, responseCommand, thisResponseData, 13)) {
-                    finished = true;
+                    setCommunicationUnsuccessfullyFinished();
                     break;
                 }
                 ntfSessionID = responseData.getTwoByteValue(0);
@@ -229,60 +247,46 @@ class SCsetLimitation extends SetProductLimitation implements SlipBridgeCommunic
                 logger.trace("setResponse(): ntfInformationCode={}.", ntfInformationCode);
 
                 if (!KLF200Response.check4matchingSessionID(logger, ntfSessionID, reqSessionID)) {
-                    finished = true;
+                    return false;
                 }
                 switch (ntfRunStatus) {
                     case 0:
                         logger.debug("setResponse(): returned ntfRunStatus: EXECUTION_COMPLETED.");
-                        success = true;
+                        currentState = KLF200Handshake.State.WAIT4FINISH;
                         break;
                     case 1:
                         logger.info("setResponse(): returned ntfRunStatus: EXECUTION_FAILED.");
-                        finished = true;
+                        setCommunicationUnsuccessfullyFinished();
                         break;
                     case 2:
                         logger.debug("setResponse(): returned ntfRunStatus: EXECUTION_ACTIVE.");
                         break;
                     default:
                         logger.warn("setResponse(): returned ntfRunStatus={} (not defined).", ntfRunStatus);
-                        finished = true;
+                        setCommunicationUnsuccessfullyFinished();
                         break;
-                }
-                if (!isSequentialEnforced) {
-                    logger.trace(
-                            "setResponse(): skipping wait for more packets as sequential processing is not enforced.");
-                    success = true;
-                    finished = true;
                 }
                 break;
 
             case GW_SESSION_FINISHED_NTF:
-                finished = true;
                 if (!KLF200Response.isLengthValid(logger, responseCommand, thisResponseData, 2)) {
+                    setCommunicationUnsuccessfullyFinished();
                     break;
                 }
                 int finishedNtfSessionID = responseData.getTwoByteValue(0);
                 if (!KLF200Response.check4matchingSessionID(logger, finishedNtfSessionID, reqSessionID)) {
+                    setCommunicationUnsuccessfullyFinished();
                     break;
                 }
                 logger.debug("setResponse(): finishedNtfSessionID={}.", finishedNtfSessionID);
-                success = true;
+                setCommunicationSuccessfullyFinished();
                 break;
 
             default:
                 KLF200Response.errorLogging(logger, responseCommand);
         }
-        KLF200Response.outroLogging(logger, success, finished);
-    }
-
-    @Override
-    public boolean isCommunicationFinished() {
-        return finished;
-    }
-
-    @Override
-    public boolean isCommunicationSuccessful() {
-        return success;
+        KLF200Response.outroLogging(logger, isCommunicationSuccessful, isHandshakeFinished);
+        return true;
     }
 
     /*

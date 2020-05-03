@@ -13,8 +13,8 @@
 package org.openhab.binding.velux.internal.bridge.slip;
 
 import org.eclipse.jdt.annotation.NonNullByDefault;
-import org.eclipse.jdt.annotation.Nullable;
 import org.openhab.binding.velux.internal.bridge.common.GetWLANConfig;
+import org.openhab.binding.velux.internal.bridge.slip.utils.KLF200Response;
 import org.openhab.binding.velux.internal.bridge.slip.utils.Packet;
 import org.openhab.binding.velux.internal.things.VeluxGwWLAN;
 import org.openhab.binding.velux.internal.things.VeluxKLFAPI.Command;
@@ -49,7 +49,7 @@ class SCgetWLANConfig extends GetWLANConfig implements SlipBridgeCommunicationPr
     private final Logger logger = LoggerFactory.getLogger(SCgetWLANConfig.class);
 
     private static final String DESCRIPTION = "Retrieve WLAN configuration";
-    private static final Command COMMAND = Command.GW_GET_NETWORK_SETUP_REQ;
+    private static final Command COMMAND = Command.UNDEFTYPE;
 
     private static final String UNSUPPORTED = "*** unsupported-by-current-gateway-firmware ***";
 
@@ -58,9 +58,6 @@ class SCgetWLANConfig extends GetWLANConfig implements SlipBridgeCommunicationPr
      */
 
     private byte[] requestData = new byte[0];
-    private short responseCommand;
-    @SuppressWarnings("unused")
-    private byte @Nullable [] responseData;
 
     /*
      * ===========================================================
@@ -84,6 +81,8 @@ class SCgetWLANConfig extends GetWLANConfig implements SlipBridgeCommunicationPr
 
     @Override
     public CommandNumber getRequestCommand() {
+        setCommunicationUnfinishedAndUnsuccessful();
+        KLF200Response.requestLogging(logger, COMMAND);
         return COMMAND.getCommand();
     }
 
@@ -93,20 +92,9 @@ class SCgetWLANConfig extends GetWLANConfig implements SlipBridgeCommunicationPr
     }
 
     @Override
-    public void setResponse(short thisResponseCommand, byte[] thisResponseData, boolean isSequentialEnforced) {
+    public boolean setResponse(short thisResponseCommand, byte[] thisResponseData, boolean isSequentialEnforced) {
         logger.trace("setResponseCommand({}, {}) called.", thisResponseCommand, new Packet(thisResponseData));
-        responseCommand = thisResponseCommand;
-        responseData = thisResponseData;
-    }
-
-    @Override
-    public boolean isCommunicationFinished() {
         return true;
-    }
-
-    @Override
-    public boolean isCommunicationSuccessful() {
-        return (responseCommand == Command.GW_GET_NETWORK_SETUP_CFM.getShort());
     }
 
     /*

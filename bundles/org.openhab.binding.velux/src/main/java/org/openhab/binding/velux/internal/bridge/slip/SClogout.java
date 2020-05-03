@@ -73,6 +73,8 @@ class SClogout extends Logout implements SlipBridgeCommunicationProtocol {
 
     @Override
     public CommandNumber getRequestCommand() {
+        setCommunicationUnfinishedAndUnsuccessful();
+        KLF200Response.requestLogging(logger, COMMAND);
         return COMMAND.getCommand();
     }
 
@@ -82,11 +84,12 @@ class SClogout extends Logout implements SlipBridgeCommunicationProtocol {
     }
 
     @Override
-    public void setResponse(short responseCommand, byte[] thisResponseData, boolean isSequentialEnforced) {
+    public boolean setResponse(short responseCommand, byte[] thisResponseData, boolean isSequentialEnforced) {
         KLF200Response.introLogging(logger, responseCommand, thisResponseData);
         success = true;
         finished = true;
         KLF200Response.outroLogging(logger, success, finished);
+        return true;
     }
 
     @Override

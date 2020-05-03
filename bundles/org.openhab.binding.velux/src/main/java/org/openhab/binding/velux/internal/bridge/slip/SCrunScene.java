@@ -12,10 +12,14 @@
  */
 package org.openhab.binding.velux.internal.bridge.slip;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Random;
+import java.util.Set;
 
 import org.eclipse.jdt.annotation.NonNullByDefault;
 import org.openhab.binding.velux.internal.bridge.common.RunScene;
+import org.openhab.binding.velux.internal.bridge.slip.utils.KLF200Handshake;
 import org.openhab.binding.velux.internal.bridge.slip.utils.KLF200Response;
 import org.openhab.binding.velux.internal.bridge.slip.utils.Packet;
 import org.openhab.binding.velux.internal.things.VeluxKLFAPI.Command;
@@ -54,6 +58,22 @@ class SCrunScene extends RunScene implements SlipBridgeCommunicationProtocol {
 
     /*
      * ===========================================================
+     * Constant Objects
+     */
+
+    private static final Map<KLF200Handshake.State, Set<Command>> STATEMACHINE;
+    static {
+        STATEMACHINE = new HashMap<KLF200Handshake.State, Set<Command>>();
+        STATEMACHINE.put(KLF200Handshake.State.IDLE, KLF200Handshake.build());
+        STATEMACHINE.put(KLF200Handshake.State.WAIT4CONFIRMATION, KLF200Handshake.build(Command.GW_ACTIVATE_SCENE_CFM));
+        STATEMACHINE.put(KLF200Handshake.State.WAIT4NOTIFICATION,
+                KLF200Handshake.build(Command.GW_COMMAND_RUN_STATUS_NTF, Command.GW_COMMAND_REMAINING_TIME_NTF,
+                        Command.GW_COMMAND_REMAINING_TIME_NTF));
+        STATEMACHINE.put(KLF200Handshake.State.WAIT4FINISH, KLF200Handshake.build(Command.GW_SESSION_FINISHED_NTF));
+    }
+
+    /*
+     * ===========================================================
      * Message Content Parameters
      */
 
@@ -75,8 +95,7 @@ class SCrunScene extends RunScene implements SlipBridgeCommunicationProtocol {
      * Result Objects
      */
 
-    private boolean success = false;
-    private boolean finished = false;
+    private KLF200Handshake.State currentState = KLF200Handshake.State.IDLE;
 
     /*
      * ===========================================================
@@ -107,9 +126,9 @@ class SCrunScene extends RunScene implements SlipBridgeCommunicationProtocol {
 
     @Override
     public CommandNumber getRequestCommand() {
-        success = false;
-        finished = false;
-        logger.trace("getRequestCommand() returns {} ({}).", COMMAND.name(), COMMAND.getCommand());
+        setCommunicationUnfinishedAndUnsuccessful();
+        currentState = KLF200Handshake.State.WAIT4CONFIRMATION;
+        KLF200Response.requestLogging(logger, COMMAND);
         return COMMAND.getCommand();
     }
 
@@ -134,15 +153,17 @@ class SCrunScene extends RunScene implements SlipBridgeCommunicationProtocol {
     }
 
     @Override
-    public void setResponse(short responseCommand, byte[] thisResponseData, boolean isSequentialEnforced) {
+    public boolean setResponse(short responseCommand, byte[] thisResponseData, boolean isSequentialEnforced) {
         KLF200Response.introLogging(logger, responseCommand, thisResponseData);
-        success = false;
-        finished = false;
+        setCommunicationUnfinishedAndUnsuccessful();
+        if (!KLF200Response.isExpectedAnswer(logger, STATEMACHINE, currentState, responseCommand)) {
+            return false;
+        }
         Packet responseData = new Packet(thisResponseData);
         switch (Command.get(responseCommand)) {
             case GW_ACTIVATE_SCENE_CFM:
                 if (!KLF200Response.isLengthValid(logger, responseCommand, thisResponseData, 3)) {
-                    finished = true;
+                    setCommunicationUnsuccessfullyFinished();
                     break;
                 }
                 int cfmStatus = responseData.getOneByteValue(0);
@@ -151,35 +172,30 @@ class SCrunScene extends RunScene implements SlipBridgeCommunicationProtocol {
                     case 0:
                         logger.trace("setResponse(): returned status: OK - Request accepted.");
                         if (!KLF200Response.check4matchingSessionID(logger, cfmSessionID, reqSessionID)) {
-                            finished = true;
-                        } else if (!isSequentialEnforced) {
-                            logger.trace(
-                                    "setResponse(): skipping wait for more packets as sequential processing is not enforced.");
-                            success = true;
-                            finished = true;
+                            return false;
                         }
                         break;
                     case 1:
-                        finished = true;
+                        setCommunicationUnsuccessfullyFinished();
                         logger.trace("setResponse(): returned status: Error – Invalid parameter.");
                         break;
                     case 2:
-                        finished = true;
+                        setCommunicationUnsuccessfullyFinished();
                         logger.trace("setResponse(): returned status: Error – Request rejected.");
                         break;
                     default:
-                        finished = true;
+                        setCommunicationUnsuccessfullyFinished();
                         logger.warn("setResponse({}): returned status={} (Reserved/unknown).",
                                 Command.get(responseCommand).toString(), cfmStatus);
                         break;
                 }
+                currentState = KLF200Handshake.State.WAIT4NOTIFICATION;
                 break;
 
             case GW_COMMAND_RUN_STATUS_NTF:
                 logger.trace("setResponse(): received GW_COMMAND_RUN_STATUS_NTF, continuing.");
                 if (!KLF200Response.isLengthValid(logger, responseCommand, thisResponseData, 13)) {
-                    logger.trace("setResponse(): GW_COMMAND_RUN_STATUS_NTF received with invalid length.");
-                    finished = true;
+                    setCommunicationUnsuccessfullyFinished();
                     break;
                 }
                 // Extracting information items
@@ -201,19 +217,13 @@ class SCrunScene extends RunScene implements SlipBridgeCommunicationProtocol {
                 logger.trace("setResponse(): StatusReply={}.", ntfStatusReply);
                 logger.trace("setResponse(): InformationCode={}.", ntfInformationCode);
 
-                if (!isSequentialEnforced) {
-                    logger.trace(
-                            "setResponse(): skipping wait for more packets as sequential processing is not enforced.");
-                    success = true;
-                    finished = true;
-                }
+                currentState = KLF200Handshake.State.WAIT4NOTIFICATION2;
                 break;
 
             case GW_COMMAND_REMAINING_TIME_NTF:
                 logger.trace("setResponse(): received GW_COMMAND_REMAINING_TIME_NTF, continuing.");
                 if (!KLF200Response.isLengthValid(logger, responseCommand, thisResponseData, 6)) {
-                    logger.trace("setResponse(): GW_COMMAND_REMAINING_TIME_NTF received with invalid length.");
-                    finished = true;
+                    setCommunicationUnsuccessfullyFinished();
                     break;
                 }
                 // Extracting information items
@@ -227,45 +237,29 @@ class SCrunScene extends RunScene implements SlipBridgeCommunicationProtocol {
                 logger.trace("setResponse(): NodeParameter={}.", ntfNodeParameter);
                 logger.trace("setResponse(): Seconds={}.", ntfSeconds);
 
-                if (!isSequentialEnforced) {
-                    logger.trace(
-                            "setResponse(): skipping wait for more packets as sequential processing is not enforced.");
-                    success = true;
-                    finished = true;
-                }
+                currentState = KLF200Handshake.State.WAIT4NOTIFICATION2;
                 break;
 
             case GW_SESSION_FINISHED_NTF:
                 logger.trace("setResponse(): received GW_SESSION_FINISHED_NTF.");
                 if (!KLF200Response.isLengthValid(logger, responseCommand, thisResponseData, 2)) {
-                    logger.trace("setResponse(): GW_SESSION_FINISHED_NTF received with invalid length.");
-                    finished = true;
+                    setCommunicationUnsuccessfullyFinished();
                     break;
                 }
                 // Extracting information items
                 ntfSessionID = responseData.getTwoByteValue(0);
 
                 logger.trace("setResponse(): SessionID={}.", ntfSessionID);
-
-                success = true;
-                finished = true;
+                setCommunicationSuccessfullyFinished();
                 break;
 
             default:
                 KLF200Response.errorLogging(logger, responseCommand);
-                finished = true;
+                setCommunicationUnsuccessfullyFinished();
         }
-        KLF200Response.outroLogging(logger, success, finished);
-    }
+        KLF200Response.outroLogging(logger, isCommunicationSuccessful, isHandshakeFinished);
+        return true;
 
-    @Override
-    public boolean isCommunicationFinished() {
-        return finished;
-    }
-
-    @Override
-    public boolean isCommunicationSuccessful() {
-        return success;
     }
 
     /*

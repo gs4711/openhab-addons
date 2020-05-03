@@ -12,9 +12,14 @@
  */
 package org.openhab.binding.velux.internal.bridge.slip;
 
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Set;
+
 import org.eclipse.jdt.annotation.NonNullByDefault;
 import org.openhab.binding.velux.internal.VeluxBindingConstants;
 import org.openhab.binding.velux.internal.bridge.common.Login;
+import org.openhab.binding.velux.internal.bridge.slip.utils.KLF200Handshake;
 import org.openhab.binding.velux.internal.bridge.slip.utils.KLF200Response;
 import org.openhab.binding.velux.internal.bridge.slip.utils.Packet;
 import org.openhab.binding.velux.internal.things.VeluxKLFAPI.Command;
@@ -55,6 +60,17 @@ class SClogin extends Login implements SlipBridgeCommunicationProtocol {
 
     /*
      * ===========================================================
+     * Constant Objects
+     */
+
+    private static final Map<KLF200Handshake.State, Set<Command>> STATEMACHINE;
+    static {
+        STATEMACHINE = new HashMap<KLF200Handshake.State, Set<Command>>();
+        STATEMACHINE.put(KLF200Handshake.State.WAIT4CONFIRMATION, KLF200Handshake.build(Command.GW_PASSWORD_ENTER_CFM));
+    }
+
+    /*
+     * ===========================================================
      * Message Content Parameters
      */
 
@@ -72,8 +88,7 @@ class SClogin extends Login implements SlipBridgeCommunicationProtocol {
      * Result Objects
      */
 
-    private boolean success = false;
-    private boolean finished = false;
+    private KLF200Handshake.State currentState = KLF200Handshake.State.IDLE;
 
     /*
      * ===========================================================
@@ -87,6 +102,9 @@ class SClogin extends Login implements SlipBridgeCommunicationProtocol {
 
     @Override
     public CommandNumber getRequestCommand() {
+        setCommunicationUnfinishedAndUnsuccessful();
+        currentState = KLF200Handshake.State.WAIT4CONFIRMATION;
+        KLF200Response.requestLogging(logger, COMMAND);
         return COMMAND.getCommand();
     }
 
@@ -99,14 +117,17 @@ class SClogin extends Login implements SlipBridgeCommunicationProtocol {
     }
 
     @Override
-    public void setResponse(short responseCommand, byte[] thisResponseData, boolean isSequentialEnforced) {
+    public boolean setResponse(short responseCommand, byte[] thisResponseData, boolean isSequentialEnforced) {
         KLF200Response.introLogging(logger, responseCommand, thisResponseData);
-        success = false;
-        finished = true;
+        setCommunicationUnfinishedAndUnsuccessful();
+        if (!KLF200Response.isExpectedAnswer(logger, STATEMACHINE, currentState, responseCommand)) {
+            return false;
+        }
         Packet responseData = new Packet(thisResponseData);
         switch (Command.get(responseCommand)) {
             case GW_PASSWORD_ENTER_CFM:
                 if (!KLF200Response.isLengthValid(logger, responseCommand, thisResponseData, 1)) {
+                    setCommunicationUnsuccessfullyFinished();
                     break;
                 }
                 int cfmStatus = responseData.getOneByteValue(0);
@@ -115,34 +136,27 @@ class SClogin extends Login implements SlipBridgeCommunicationProtocol {
                         logger.info("{} bridge connection successfully established (login succeeded).",
                                 VeluxBindingConstants.BINDING_ID);
                         logger.debug("setResponse(): returned status: The request was successful.");
-                        success = true;
+                        setCommunicationSuccessfullyFinished();
                         break;
                     case 1:
                         logger.warn("{} bridge connection successfully established but login failed.",
                                 VeluxBindingConstants.BINDING_ID);
                         logger.debug("setResponse(): returned status: The request failed.");
+                        setCommunicationUnsuccessfullyFinished();
                         break;
                     default:
                         logger.warn("setResponse(): returned status={} (not defined).", cfmStatus);
+                        setCommunicationUnsuccessfullyFinished();
                         break;
                 }
                 break;
 
             default:
                 KLF200Response.errorLogging(logger, responseCommand);
-                finished = true;
+                setCommunicationUnsuccessfullyFinished();
         }
-        KLF200Response.outroLogging(logger, success, finished);
-    }
-
-    @Override
-    public boolean isCommunicationFinished() {
-        return finished;
-    }
-
-    @Override
-    public boolean isCommunicationSuccessful() {
-        return success;
+        KLF200Response.outroLogging(logger, isCommunicationSuccessful, isHandshakeFinished);
+        return true;
     }
 
     /*

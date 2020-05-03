@@ -12,8 +12,13 @@
  */
 package org.openhab.binding.velux.internal.bridge.slip;
 
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Set;
+
 import org.eclipse.jdt.annotation.NonNullByDefault;
 import org.openhab.binding.velux.internal.bridge.common.RunProductDiscovery;
+import org.openhab.binding.velux.internal.bridge.slip.utils.KLF200Handshake;
 import org.openhab.binding.velux.internal.bridge.slip.utils.KLF200Response;
 import org.openhab.binding.velux.internal.bridge.slip.utils.Packet;
 import org.openhab.binding.velux.internal.things.VeluxKLFAPI.Command;
@@ -48,6 +53,20 @@ class SCrunProductDiscovery extends RunProductDiscovery implements SlipBridgeCom
 
     /*
      * ===========================================================
+     * Constant Objects
+     */
+
+    private static final Map<KLF200Handshake.State, Set<Command>> STATEMACHINE;
+    static {
+        STATEMACHINE = new HashMap<KLF200Handshake.State, Set<Command>>();
+        STATEMACHINE.put(KLF200Handshake.State.WAIT4CONFIRMATION,
+                KLF200Handshake.build(Command.GW_CS_DISCOVER_NODES_CFM));
+        STATEMACHINE.put(KLF200Handshake.State.WAIT4NOTIFICATION,
+                KLF200Handshake.build(Command.GW_CS_DISCOVER_NODES_NTF));
+    }
+
+    /*
+     * ===========================================================
      * Message Content Parameters
      */
 
@@ -65,8 +84,7 @@ class SCrunProductDiscovery extends RunProductDiscovery implements SlipBridgeCom
      * Result Objects
      */
 
-    private boolean success = false;
-    private boolean finished = false;
+    private KLF200Handshake.State currentState = KLF200Handshake.State.IDLE;
 
     /*
      * ===========================================================
@@ -80,9 +98,9 @@ class SCrunProductDiscovery extends RunProductDiscovery implements SlipBridgeCom
 
     @Override
     public CommandNumber getRequestCommand() {
-        success = false;
-        finished = false;
-        logger.debug("getRequestCommand() returns {} ({}).", COMMAND.name(), COMMAND.getCommand());
+        setCommunicationUnfinishedAndUnsuccessful();
+        currentState = KLF200Handshake.State.WAIT4CONFIRMATION;
+        KLF200Response.requestLogging(logger, COMMAND);
         return COMMAND.getCommand();
     }
 
@@ -96,59 +114,57 @@ class SCrunProductDiscovery extends RunProductDiscovery implements SlipBridgeCom
     }
 
     @Override
-    public void setResponse(short responseCommand, byte[] thisResponseData, boolean isSequentialEnforced) {
+    public boolean setResponse(short responseCommand, byte[] thisResponseData, boolean isSequentialEnforced) {
         KLF200Response.introLogging(logger, responseCommand, thisResponseData);
-        success = false;
-        finished = false;
+        setCommunicationUnfinishedAndUnsuccessful();
+        if (!KLF200Response.isExpectedAnswer(logger, STATEMACHINE, currentState, responseCommand)) {
+            return false;
+        }
         Packet responseData = new Packet(thisResponseData);
         switch (Command.get(responseCommand)) {
             case GW_CS_DISCOVER_NODES_CFM:
                 logger.trace("setResponse(): received confirmation for discovery mode.");
+                currentState = KLF200Handshake.State.WAIT4NOTIFICATION;
                 break;
 
             case GW_CS_DISCOVER_NODES_NTF:
-                finished = true;
                 if (!KLF200Response.isLengthValid(logger, responseCommand, thisResponseData, 131)) {
+                    setCommunicationUnsuccessfullyFinished();
                     break;
                 }
                 int ntfDiscoverStatus = responseData.getOneByteValue(130);
                 switch (ntfDiscoverStatus) {
                     case 0:
                         logger.trace("setResponse(): returned status: OK. Discovered nodes. See bit array.");
-                        success = true;
+                        setCommunicationSuccessfullyFinished();
                         break;
                     case 5:
                         logger.warn("setResponse(): returned status: ERROR - Failed. CS not ready.");
+                        setCommunicationUnsuccessfullyFinished();
                         break;
                     case 6:
                         logger.trace(
                                 "setResponse(): returned status: OK. But some nodes were not added to system table (e.g. System table has reached its limit).");
+                        setCommunicationSuccessfullyFinished();
                         break;
                     case 7:
                         logger.warn("setResponse(): returned status: ERROR - CS busy with another task.");
+                        setCommunicationUnsuccessfullyFinished();
                         break;
                     default:
                         logger.warn("setResponse({}): returned status={} (Reserved/unknown).",
                                 Command.get(responseCommand).toString(), ntfDiscoverStatus);
+                        setCommunicationUnsuccessfullyFinished();
                         break;
                 }
                 break;
 
             default:
                 KLF200Response.errorLogging(logger, responseCommand);
-                finished = true;
+                setCommunicationUnsuccessfullyFinished();
         }
-        KLF200Response.outroLogging(logger, success, finished);
-    }
-
-    @Override
-    public boolean isCommunicationFinished() {
-        return finished;
-    }
-
-    @Override
-    public boolean isCommunicationSuccessful() {
-        return success;
+        KLF200Response.outroLogging(logger, isCommunicationSuccessful, isHandshakeFinished);
+        return true;
     }
 
 }

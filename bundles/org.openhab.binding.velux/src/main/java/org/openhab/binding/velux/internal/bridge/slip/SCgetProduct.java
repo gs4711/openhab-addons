@@ -12,8 +12,13 @@
  */
 package org.openhab.binding.velux.internal.bridge.slip;
 
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Set;
+
 import org.eclipse.jdt.annotation.NonNullByDefault;
 import org.openhab.binding.velux.internal.bridge.common.GetProduct;
+import org.openhab.binding.velux.internal.bridge.slip.utils.KLF200Handshake;
 import org.openhab.binding.velux.internal.bridge.slip.utils.KLF200Response;
 import org.openhab.binding.velux.internal.bridge.slip.utils.Packet;
 import org.openhab.binding.velux.internal.things.VeluxKLFAPI.Command;
@@ -58,6 +63,21 @@ class SCgetProduct extends GetProduct implements SlipBridgeCommunicationProtocol
 
     /*
      * ===========================================================
+     * Constant Objects
+     */
+
+    private static final Map<KLF200Handshake.State, Set<Command>> STATEMACHINE;
+    static {
+        STATEMACHINE = new HashMap<KLF200Handshake.State, Set<Command>>();
+        STATEMACHINE.put(KLF200Handshake.State.IDLE, KLF200Handshake.build());
+        STATEMACHINE.put(KLF200Handshake.State.WAIT4CONFIRMATION,
+                KLF200Handshake.build(Command.GW_GET_NODE_INFORMATION_CFM));
+        STATEMACHINE.put(KLF200Handshake.State.WAIT4NOTIFICATION,
+                KLF200Handshake.build(Command.GW_GET_NODE_INFORMATION_NTF));
+    }
+
+    /*
+     * ===========================================================
      * Message Content Parameters
      */
 
@@ -75,8 +95,7 @@ class SCgetProduct extends GetProduct implements SlipBridgeCommunicationProtocol
      * Result Objects
      */
 
-    private boolean success = false;
-    private boolean finished = false;
+    private KLF200Handshake.State currentState = KLF200Handshake.State.IDLE;
 
     private VeluxProduct product = VeluxProduct.UNKNOWN;
 
@@ -92,9 +111,9 @@ class SCgetProduct extends GetProduct implements SlipBridgeCommunicationProtocol
 
     @Override
     public CommandNumber getRequestCommand() {
-        success = false;
-        finished = false;
-        logger.debug("getRequestCommand() returns {} ({}).", COMMAND.name(), COMMAND.getCommand());
+        setCommunicationUnfinishedAndUnsuccessful();
+        currentState = KLF200Handshake.State.WAIT4CONFIRMATION;
+        KLF200Response.requestLogging(logger, COMMAND);
         return COMMAND.getCommand();
     }
 
@@ -108,15 +127,17 @@ class SCgetProduct extends GetProduct implements SlipBridgeCommunicationProtocol
     }
 
     @Override
-    public void setResponse(short responseCommand, byte[] thisResponseData, boolean isSequentialEnforced) {
+    public boolean setResponse(short responseCommand, byte[] thisResponseData, boolean isSequentialEnforced) {
         KLF200Response.introLogging(logger, responseCommand, thisResponseData);
-        success = false;
-        finished = false;
+        setCommunicationUnfinishedAndUnsuccessful();
+        if (!KLF200Response.isExpectedAnswer(logger, STATEMACHINE, currentState, responseCommand)) {
+            return false;
+        }
         Packet responseData = new Packet(thisResponseData);
         switch (Command.get(responseCommand)) {
             case GW_GET_NODE_INFORMATION_CFM:
                 if (!KLF200Response.isLengthValid(logger, responseCommand, thisResponseData, 2)) {
-                    finished = true;
+                    setCommunicationUnsuccessfullyFinished();
                     break;
                 }
                 int cfmStatus = responseData.getOneByteValue(0);
@@ -125,28 +146,29 @@ class SCgetProduct extends GetProduct implements SlipBridgeCommunicationProtocol
                     case 0:
                         logger.trace("setResponse(): returned status: OK - Request accepted.");
                         if (!KLF200Response.check4matchingNodeID(logger, reqNodeID, cfmNodeID)) {
-                            finished = true;
+                            return false;
                         }
+                        currentState = KLF200Handshake.State.WAIT4NOTIFICATION;
                         break;
                     case 1:
-                        finished = true;
                         logger.trace("setResponse(): returned status: Error – Request rejected.");
+                        setCommunicationUnsuccessfullyFinished();
                         break;
                     case 2:
-                        finished = true;
                         logger.trace("setResponse(): returned status: Error – Invalid node index.");
+                        setCommunicationUnsuccessfullyFinished();
                         break;
                     default:
-                        finished = true;
                         logger.warn("setResponse({}): returned status={} (Reserved/unknown).",
                                 Command.get(responseCommand).toString(), cfmStatus);
+                        setCommunicationUnsuccessfullyFinished();
                         break;
                 }
                 break;
 
             case GW_GET_NODE_INFORMATION_NTF:
-                finished = true;
                 if (!KLF200Response.isLengthValid(logger, responseCommand, thisResponseData, 124)) {
+                    setCommunicationUnsuccessfullyFinished();
                     break;
                 }
                 // Extracting information items
@@ -209,17 +231,17 @@ class SCgetProduct extends GetProduct implements SlipBridgeCommunicationProtocol
                 logger.trace("setResponse(): ntfAliasFive={}.", ntfAliasFive);
 
                 if (!KLF200Response.check4matchingNodeID(logger, reqNodeID, ntfNodeID)) {
-                    break;
+                    return false;
                 }
 
                 if ((ntfName.length() == 0) || ntfName.startsWith("_")) {
                     ntfName = "#".concat(String.valueOf(ntfNodeID));
-                    logger.debug("setResponse(): device provided invalid name, using '{}' instead.", ntfName);
+                    logger.trace("setResponse(): device provided invalid name, using '{}' instead.", ntfName);
                 }
                 String commonSerialNumber = VeluxProductSerialNo.toString(ntfSerialNumber);
                 if (VeluxProductSerialNo.isInvalid(ntfSerialNumber)) {
                     commonSerialNumber = new String(ntfName);
-                    logger.debug("setResponse(): device provided invalid serial number, using name '{}' instead.",
+                    logger.trace("setResponse(): device provided invalid serial number, using name '{}' instead.",
                             commonSerialNumber);
                 }
 
@@ -227,23 +249,15 @@ class SCgetProduct extends GetProduct implements SlipBridgeCommunicationProtocol
                         new ProductBridgeIndex(ntfNodeID), ntfOrder, ntfPlacement, ntfVelocity, ntfNodeVariation,
                         ntfPowerMode, commonSerialNumber, ntfState, ntfCurrentPosition, ntfTarget, ntfRemainingTime,
                         ntfTimeStamp);
-                success = true;
+                setCommunicationSuccessfullyFinished();
                 break;
 
             default:
                 KLF200Response.errorLogging(logger, responseCommand);
+                setCommunicationUnsuccessfullyFinished();
         }
-        KLF200Response.outroLogging(logger, success, finished);
-    }
-
-    @Override
-    public boolean isCommunicationFinished() {
-        return finished;
-    }
-
-    @Override
-    public boolean isCommunicationSuccessful() {
-        return success;
+        KLF200Response.outroLogging(logger, isCommunicationSuccessful, isHandshakeFinished);
+        return true;
     }
 
     /*

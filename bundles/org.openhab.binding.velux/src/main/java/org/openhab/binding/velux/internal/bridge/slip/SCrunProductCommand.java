@@ -12,14 +12,20 @@
  */
 package org.openhab.binding.velux.internal.bridge.slip;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Random;
+import java.util.Set;
 
 import org.eclipse.jdt.annotation.NonNullByDefault;
 import org.openhab.binding.velux.internal.bridge.common.RunProductCommand;
+import org.openhab.binding.velux.internal.bridge.slip.utils.KLF200Handshake;
 import org.openhab.binding.velux.internal.bridge.slip.utils.KLF200Response;
 import org.openhab.binding.velux.internal.bridge.slip.utils.Packet;
 import org.openhab.binding.velux.internal.things.VeluxKLFAPI.Command;
 import org.openhab.binding.velux.internal.things.VeluxKLFAPI.CommandNumber;
+import org.openhab.binding.velux.internal.things.VeluxKLFAPI.RunStatus;
+import org.openhab.binding.velux.internal.things.VeluxKLFAPI.StatusReply;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -49,6 +55,21 @@ import org.slf4j.LoggerFactory;
 class SCrunProductCommand extends RunProductCommand implements SlipBridgeCommunicationProtocol {
     private final Logger logger = LoggerFactory.getLogger(SCrunProductCommand.class);
 
+    /*
+     * ===========================================================
+     * Constant Objects
+     */
+
+    private static final Map<KLF200Handshake.State, Set<Command>> STATEMACHINE;
+    static {
+        STATEMACHINE = new HashMap<KLF200Handshake.State, Set<Command>>();
+        STATEMACHINE.put(KLF200Handshake.State.WAIT4CONFIRMATION, KLF200Handshake.build(Command.GW_COMMAND_SEND_CFM));
+        STATEMACHINE.put(KLF200Handshake.State.WAIT4NOTIFICATION,
+                KLF200Handshake.build(Command.GW_COMMAND_RUN_STATUS_NTF));
+        STATEMACHINE.put(KLF200Handshake.State.WAIT4FINISH, KLF200Handshake.build(Command.GW_COMMAND_RUN_STATUS_NTF,
+                Command.GW_COMMAND_REMAINING_TIME_NTF, Command.GW_SESSION_FINISHED_NTF));
+    }
+
     private static final String DESCRIPTION = "Send Command to Actuator";
     private static final Command COMMAND = Command.GW_COMMAND_SEND_REQ;
 
@@ -71,6 +92,8 @@ class SCrunProductCommand extends RunProductCommand implements SlipBridgeCommuni
     private int reqPL47 = 0; // unused
     private int reqLockTime = 0; // 30 seconds
 
+    private boolean commandResult = false;
+
     /*
      * ===========================================================
      * Message Objects
@@ -83,8 +106,7 @@ class SCrunProductCommand extends RunProductCommand implements SlipBridgeCommuni
      * Result Objects
      */
 
-    private boolean success = false;
-    private boolean finished = false;
+    private KLF200Handshake.State currentState = KLF200Handshake.State.IDLE;
 
     /*
      * ===========================================================
@@ -110,9 +132,9 @@ class SCrunProductCommand extends RunProductCommand implements SlipBridgeCommuni
 
     @Override
     public CommandNumber getRequestCommand() {
-        success = false;
-        finished = false;
-        logger.debug("getRequestCommand() returns {}.", COMMAND.getCommand());
+        setCommunicationUnfinishedAndUnsuccessful();
+        currentState = KLF200Handshake.State.WAIT4CONFIRMATION;
+        KLF200Response.requestLogging(logger, COMMAND);
         return COMMAND.getCommand();
     }
 
@@ -152,15 +174,18 @@ class SCrunProductCommand extends RunProductCommand implements SlipBridgeCommuni
     }
 
     @Override
-    public void setResponse(short responseCommand, byte[] thisResponseData, boolean isSequentialEnforced) {
+    public boolean setResponse(short responseCommand, byte[] thisResponseData, boolean isSequentialEnforced) {
         KLF200Response.introLogging(logger, responseCommand, thisResponseData);
-        success = false;
-        finished = false;
+        setCommunicationUnfinishedAndUnsuccessful();
+        if (!KLF200Response.isExpectedAnswer(logger, STATEMACHINE, currentState, responseCommand)) {
+            return false;
+        }
         Packet responseData = new Packet(thisResponseData);
         switch (Command.get(responseCommand)) {
             case GW_COMMAND_SEND_CFM:
+                commandResult = false;
                 if (!KLF200Response.isLengthValid(logger, responseCommand, thisResponseData, 3)) {
-                    finished = true;
+                    setCommunicationUnsuccessfullyFinished();
                     break;
                 }
                 int cfmSessionID = responseData.getTwoByteValue(0);
@@ -168,29 +193,25 @@ class SCrunProductCommand extends RunProductCommand implements SlipBridgeCommuni
                 switch (cfmStatus) {
                     case 0:
                         logger.info("setResponse(): returned status: Error – Command rejected.");
-                        finished = true;
+                        setCommunicationUnsuccessfullyFinished();
                         break;
                     case 1:
                         logger.debug("setResponse(): returned status: OK - Command is accepted.");
                         if (!KLF200Response.check4matchingSessionID(logger, cfmSessionID, reqSessionID)) {
-                            finished = true;
-                        } else if (!isSequentialEnforced) {
-                            logger.trace(
-                                    "setResponse(): skipping wait for more packets as sequential processing is not enforced.");
-                            finished = true;
-                            success = true;
+                            return false;
                         }
+                        currentState = KLF200Handshake.State.WAIT4NOTIFICATION;
                         break;
                     default:
                         logger.warn("setResponse(): returned status={} (not defined).", cfmStatus);
-                        finished = true;
+                        setCommunicationUnsuccessfullyFinished();
                         break;
                 }
                 break;
 
             case GW_COMMAND_RUN_STATUS_NTF:
                 if (!KLF200Response.isLengthValid(logger, responseCommand, thisResponseData, 13)) {
-                    finished = true;
+                    setCommunicationUnsuccessfullyFinished();
                     break;
                 }
                 int ntfSessionID = responseData.getTwoByteValue(0);
@@ -210,38 +231,57 @@ class SCrunProductCommand extends RunProductCommand implements SlipBridgeCommuni
                 logger.debug("setResponse(): ntfRunStatus={}.", ntfRunStatus);
                 logger.debug("setResponse(): ntfStatusReply={}.", ntfStatusReply);
                 logger.debug("setResponse(): ntfInformationCode={}.", ntfInformationCode);
-
                 if (!KLF200Response.check4matchingSessionID(logger, ntfSessionID, reqSessionID)) {
-                    finished = true;
+                    return false;
                 }
-                switch (ntfRunStatus) {
-                    case 0:
+
+                // TODO 20200503 new-start
+                if (true) {
+                    logger.warn("setResponse(): waiting {} seconds.", 30);
+                    try {
+                        Thread.sleep(1000 * 30);
+                    } catch (InterruptedException e) {
+                    }
+                }
+                // TODO 20200503 new-end
+
+                // switch (ntfRunStatus) {
+                // case 0:
+                // logger.debug("setResponse(): returned ntfRunStatus: EXECUTION_COMPLETED.");
+                // commandResult = true;
+                // break;
+                // case 1:
+                // logger.info("setResponse(): returned EXECUTION_FAILED/{} ({}).", ntfStatusReply,
+                // StatusReply.get((short) ntfStatusReply).getDescription());
+                // break;
+                // case 2:
+                // logger.debug("setResponse(): returned ntfRunStatus: EXECUTION_ACTIVE.");
+                // break;
+                // default:
+                // logger.warn("setResponse(): returned ntfRunStatus={} (not defined).", ntfRunStatus);
+                // setCommunicationUnsuccessfullyFinished();
+                // break;
+                // }
+                switch (RunStatus.get((short) ntfRunStatus)) {
+                    case EXECUTION_COMPLETED:
                         logger.debug("setResponse(): returned ntfRunStatus: EXECUTION_COMPLETED.");
-                        success = true;
+                        commandResult = true;
                         break;
-                    case 1:
-                        logger.info("setResponse(): returned ntfRunStatus: EXECUTION_FAILED.");
-                        finished = true;
-                        break;
-                    case 2:
-                        logger.debug("setResponse(): returned ntfRunStatus: EXECUTION_ACTIVE.");
+                    case EXECUTION_FAILED:
+                        logger.info("setResponse(): returned EXECUTION_FAILED/{} ({}).", ntfStatusReply,
+                                StatusReply.get((short) ntfStatusReply).getDescription());
                         break;
                     default:
-                        logger.warn("setResponse(): returned ntfRunStatus={} (not defined).", ntfRunStatus);
-                        finished = true;
+                        logger.debug("setResponse(): {} ({}).", ntfStatusReply,
+                                StatusReply.get((short) ntfStatusReply).getDescription());
                         break;
                 }
-                if (!isSequentialEnforced) {
-                    logger.trace(
-                            "setResponse(): skipping wait for more packets as sequential processing is not enforced.");
-                    success = true;
-                    finished = true;
-                }
+                currentState = KLF200Handshake.State.WAIT4FINISH;
                 break;
 
             case GW_COMMAND_REMAINING_TIME_NTF:
                 if (!KLF200Response.isLengthValid(logger, responseCommand, thisResponseData, 6)) {
-                    finished = true;
+                    setCommunicationUnsuccessfullyFinished();
                     break;
                 }
                 int timeNtfSessionID = responseData.getTwoByteValue(0);
@@ -250,7 +290,7 @@ class SCrunProductCommand extends RunProductCommand implements SlipBridgeCommuni
                 int timeNtfSeconds = responseData.getTwoByteValue(4);
 
                 if (!KLF200Response.check4matchingSessionID(logger, timeNtfSessionID, reqSessionID)) {
-                    finished = true;
+                    return false;
                 }
 
                 // Extracting information items
@@ -258,42 +298,41 @@ class SCrunProductCommand extends RunProductCommand implements SlipBridgeCommuni
                 logger.debug("setResponse(): timeNtfIndex={}.", timeNtfIndex);
                 logger.debug("setResponse(): timeNtfNodeParameter={}.", timeNtfNodeParameter);
                 logger.debug("setResponse(): timeNtfSeconds={}.", timeNtfSeconds);
-                if (!isSequentialEnforced) {
-                    logger.trace(
-                            "setResponse(): skipping wait for more packets as sequential processing is not enforced.");
-                    success = true;
-                    finished = true;
+                currentState = KLF200Handshake.State.WAIT4FINISH;
+                // TODO 20200503 new-start
+                if (timeNtfSeconds > 0) {
+                    logger.warn("setResponse(): waiting {} seconds.", timeNtfSeconds);
+                    try {
+                        Thread.sleep(1000 * timeNtfSeconds);
+                    } catch (InterruptedException e) {
+                    }
                 }
+                // TODO 20200503 new-end
                 break;
 
             case GW_SESSION_FINISHED_NTF:
-                finished = true;
                 if (!KLF200Response.isLengthValid(logger, responseCommand, thisResponseData, 2)) {
+                    setCommunicationUnsuccessfullyFinished();
                     break;
                 }
                 int finishedNtfSessionID = responseData.getTwoByteValue(0);
                 if (!KLF200Response.check4matchingSessionID(logger, finishedNtfSessionID, reqSessionID)) {
-                    break;
+                    return false;
                 }
                 logger.debug("setResponse(): finishedNtfSessionID={}.", finishedNtfSessionID);
-                success = true;
+                if (commandResult) {
+                    setCommunicationSuccessfullyFinished();
+                } else {
+                    setCommunicationUnsuccessfullyFinished();
+                }
                 break;
 
             default:
                 KLF200Response.errorLogging(logger, responseCommand);
-                finished = true;
+                setCommunicationUnsuccessfullyFinished();
         }
-        KLF200Response.outroLogging(logger, success, finished);
-    }
-
-    @Override
-    public boolean isCommunicationFinished() {
-        return finished;
-    }
-
-    @Override
-    public boolean isCommunicationSuccessful() {
-        return success;
+        KLF200Response.outroLogging(logger, isCommunicationSuccessful, isHandshakeFinished);
+        return true;
     }
 
     /*

@@ -12,8 +12,13 @@
  */
 package org.openhab.binding.velux.internal.bridge.slip;
 
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Set;
+
 import org.eclipse.jdt.annotation.NonNullByDefault;
 import org.openhab.binding.velux.internal.bridge.common.SetHouseStatusMonitor;
+import org.openhab.binding.velux.internal.bridge.slip.utils.KLF200Handshake;
 import org.openhab.binding.velux.internal.bridge.slip.utils.KLF200Response;
 import org.openhab.binding.velux.internal.bridge.slip.utils.Packet;
 import org.openhab.binding.velux.internal.things.VeluxKLFAPI.Command;
@@ -51,6 +56,19 @@ class SCsetHouseStatusMonitor extends SetHouseStatusMonitor implements SlipBridg
 
     /*
      * ===========================================================
+     * Constant Objects
+     */
+
+    private static final Map<KLF200Handshake.State, Set<Command>> STATEMACHINE;
+    static {
+        STATEMACHINE = new HashMap<KLF200Handshake.State, Set<Command>>();
+        STATEMACHINE.put(KLF200Handshake.State.IDLE, KLF200Handshake.build());
+        STATEMACHINE.put(KLF200Handshake.State.WAIT4CONFIRMATION, KLF200Handshake
+                .build(Command.GW_HOUSE_STATUS_MONITOR_ENABLE_CFM, Command.GW_HOUSE_STATUS_MONITOR_DISABLE_CFM));
+    }
+
+    /*
+     * ===========================================================
      * Message Content Parameters
      */
 
@@ -68,8 +86,7 @@ class SCsetHouseStatusMonitor extends SetHouseStatusMonitor implements SlipBridg
      * Result Objects
      */
 
-    private boolean success = false;
-    private boolean finished = false;
+    private KLF200Handshake.State currentState = KLF200Handshake.State.IDLE;
 
     /*
      * ===========================================================
@@ -85,9 +102,9 @@ class SCsetHouseStatusMonitor extends SetHouseStatusMonitor implements SlipBridg
     public CommandNumber getRequestCommand() {
         Command command = activateService ? Command.GW_HOUSE_STATUS_MONITOR_ENABLE_REQ
                 : Command.GW_HOUSE_STATUS_MONITOR_DISABLE_REQ;
-        success = false;
-        finished = false;
-        logger.debug("getRequestCommand() returns {} ({}).", command.name(), command.getCommand());
+        setCommunicationUnfinishedAndUnsuccessful();
+        currentState = KLF200Handshake.State.WAIT4CONFIRMATION;
+        KLF200Response.requestLogging(logger, command);
         return command.getCommand();
     }
 
@@ -98,36 +115,29 @@ class SCsetHouseStatusMonitor extends SetHouseStatusMonitor implements SlipBridg
     }
 
     @Override
-    public void setResponse(short responseCommand, byte[] thisResponseData, boolean isSequentialEnforced) {
+    public boolean setResponse(short responseCommand, byte[] thisResponseData, boolean isSequentialEnforced) {
         KLF200Response.introLogging(logger, responseCommand, thisResponseData);
-        success = false;
-        finished = true;
+        setCommunicationUnfinishedAndUnsuccessful();
+        if (!KLF200Response.isExpectedAnswer(logger, STATEMACHINE, currentState, responseCommand)) {
+            return false;
+        }
         switch (Command.get(responseCommand)) {
             case GW_HOUSE_STATUS_MONITOR_ENABLE_CFM:
                 logger.trace("setResponse(): service enable confirmed by bridge.");
-                // returned enabled: successful if enable requested
-                success = activateService;
+                setCommunicationSuccessfullyFinished();
+
                 break;
             case GW_HOUSE_STATUS_MONITOR_DISABLE_CFM:
                 logger.trace("setResponse(): service disable confirmed by bridge.");
-                // returned disabled: successful if disable requested
-                success = !activateService;
+                setCommunicationSuccessfullyFinished();
                 break;
 
             default:
                 KLF200Response.errorLogging(logger, responseCommand);
         }
-        KLF200Response.outroLogging(logger, success, finished);
-    }
-
-    @Override
-    public boolean isCommunicationFinished() {
-        return finished;
-    }
-
-    @Override
-    public boolean isCommunicationSuccessful() {
-        return success;
+        currentState = KLF200Handshake.State.IDLE;
+        KLF200Response.outroLogging(logger, isCommunicationSuccessful, isHandshakeFinished);
+        return true;
     }
 
     /*
