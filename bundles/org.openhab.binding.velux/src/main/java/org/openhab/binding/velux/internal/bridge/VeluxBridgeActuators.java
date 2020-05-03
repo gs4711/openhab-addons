@@ -49,11 +49,10 @@ public class VeluxBridgeActuators {
      * Limitation of Discovery on parts of the System table
      *
      * Whereas the parameter {@link org.openhab.binding.velux.internal.things.VeluxKLFAPI#KLF_SYSTEMTABLE_MAX}
-     * represents the
-     * maximum size of the system table in general, for speed up of the discovery process
+     * represents the maximum size of the system table in general, for speed up of the discovery process
      * a binding-internal limitation of number of possible devices is introduced.
      */
-    private static final int VELUXBINDING_SYSTEMTABLE_MAX = 16;
+    private static final int VELUXBINDING_SYSTEMTABLE_MAX = 32;
 
     // Type definitions, class-internal variables
 
@@ -107,7 +106,6 @@ public class VeluxBridgeActuators {
      */
     public boolean getProducts(VeluxBridge bridge) {
         logger.trace("getProducts() called.");
-
         GetProducts bcp = bridge.bridgeAPI().getProducts();
         GetProduct bcpSbS = bridge.bridgeAPI().getProduct();
         if ((bcpSbS != null) && !bridge.bridgeInstance.veluxBridgeConfiguration().isBulkRetrievalEnabled) {
