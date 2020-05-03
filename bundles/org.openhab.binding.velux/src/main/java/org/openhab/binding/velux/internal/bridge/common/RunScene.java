@@ -30,7 +30,7 @@ import org.eclipse.jdt.annotation.NonNullByDefault;
  * @author Guenther Schreiner - Initial contribution.
  */
 @NonNullByDefault
-public abstract class RunScene implements BridgeCommunicationProtocol {
+public abstract class RunScene extends BridgeCommunication implements BridgeCommunicationProtocol {
 
     /**
      * Sets the intended scene identifier to be executed

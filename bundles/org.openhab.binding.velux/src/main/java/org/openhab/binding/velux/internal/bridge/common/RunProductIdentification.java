@@ -30,7 +30,7 @@ import org.eclipse.jdt.annotation.NonNullByDefault;
  * @author Guenther Schreiner - Initial contribution.
  */
 @NonNullByDefault
-public abstract class RunProductIdentification implements BridgeCommunicationProtocol {
+public abstract class RunProductIdentification extends BridgeCommunication implements BridgeCommunicationProtocol {
 
     /**
      * Set the intended node identifier to be identified

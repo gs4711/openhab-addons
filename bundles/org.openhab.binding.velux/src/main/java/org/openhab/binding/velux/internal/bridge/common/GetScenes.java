@@ -31,7 +31,7 @@ import org.openhab.binding.velux.internal.things.VeluxScene;
  * @author Guenther Schreiner - Initial contribution.
  */
 @NonNullByDefault
-public abstract class GetScenes implements BridgeCommunicationProtocol {
+public abstract class GetScenes extends BridgeCommunication implements BridgeCommunicationProtocol {
 
     /**
      * <B>Retrieval of information about all defined scenes</B>

@@ -30,7 +30,7 @@ import org.eclipse.jdt.annotation.NonNullByDefault;
  * @author Guenther Schreiner - Initial contribution.
  */
 @NonNullByDefault
-public abstract class Login implements BridgeCommunicationProtocol {
+public abstract class Login extends BridgeCommunication implements BridgeCommunicationProtocol {
 
     /**
      * Sets the intended password string to be used for authentication

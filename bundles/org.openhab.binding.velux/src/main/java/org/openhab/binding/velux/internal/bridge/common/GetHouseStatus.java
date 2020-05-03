@@ -27,6 +27,6 @@ import org.eclipse.jdt.annotation.NonNullByDefault;
  * @author Guenther Schreiner - Initial contribution.
  */
 @NonNullByDefault
-public abstract class GetHouseStatus implements BridgeCommunicationProtocol {
+public abstract class GetHouseStatus extends BridgeCommunication implements BridgeCommunicationProtocol {
 
 }

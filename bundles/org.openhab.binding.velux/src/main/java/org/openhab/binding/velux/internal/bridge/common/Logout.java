@@ -27,5 +27,5 @@ import org.eclipse.jdt.annotation.NonNullByDefault;
  * @author Guenther Schreiner - Initial contribution.
  */
 @NonNullByDefault
-public abstract class Logout implements BridgeCommunicationProtocol {
+public abstract class Logout extends BridgeCommunication implements BridgeCommunicationProtocol {
 }

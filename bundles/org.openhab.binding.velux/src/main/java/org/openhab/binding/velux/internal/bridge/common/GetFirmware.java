@@ -31,7 +31,7 @@ import org.openhab.binding.velux.internal.things.VeluxGwFirmware;
  * @author Guenther Schreiner - Initial contribution.
  */
 @NonNullByDefault
-public abstract class GetFirmware implements BridgeCommunicationProtocol {
+public abstract class GetFirmware extends BridgeCommunication implements BridgeCommunicationProtocol {
 
     /**
      * <B>Retrieval of firmware version string</B>

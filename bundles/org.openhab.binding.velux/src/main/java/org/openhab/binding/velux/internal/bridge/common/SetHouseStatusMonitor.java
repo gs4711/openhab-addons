@@ -30,7 +30,7 @@ import org.eclipse.jdt.annotation.NonNullByDefault;
  * @author Guenther Schreiner - Initial contribution.
  */
 @NonNullByDefault
-public abstract class SetHouseStatusMonitor implements BridgeCommunicationProtocol {
+public abstract class SetHouseStatusMonitor extends BridgeCommunication implements BridgeCommunicationProtocol {
 
     /**
      * Modifies the intended state of the gateway-internal house monitoring settings.

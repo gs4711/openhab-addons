@@ -31,7 +31,7 @@ import org.openhab.binding.velux.internal.things.VeluxGwState;
  * @author Guenther Schreiner - Initial contribution.
  */
 @NonNullByDefault
-public abstract class GetDeviceStatus implements BridgeCommunicationProtocol {
+public abstract class GetDeviceStatus extends BridgeCommunication implements BridgeCommunicationProtocol {
     /**
      * <B>Parameter of the device state.</B>
      *

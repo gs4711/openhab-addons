@@ -31,7 +31,7 @@ import org.eclipse.jdt.annotation.NonNullByDefault;
  * @author Guenther Schreiner - Initial contribution.
  */
 @NonNullByDefault
-public abstract class GetProductLimitation implements BridgeCommunicationProtocol {
+public abstract class GetProductLimitation extends BridgeCommunication implements BridgeCommunicationProtocol {
 
     /**
      * Set the intended node identifier to be queried

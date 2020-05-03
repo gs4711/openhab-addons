@@ -27,6 +27,6 @@ import org.eclipse.jdt.annotation.NonNullByDefault;
  * @author Guenther Schreiner - Initial contribution.
  */
 @NonNullByDefault
-public abstract class RunProductSearch implements BridgeCommunicationProtocol {
+public abstract class RunProductSearch extends BridgeCommunication implements BridgeCommunicationProtocol {
 
 }

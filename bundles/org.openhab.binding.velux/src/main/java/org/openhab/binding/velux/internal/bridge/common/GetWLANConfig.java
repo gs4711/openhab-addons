@@ -31,7 +31,7 @@ import org.openhab.binding.velux.internal.things.VeluxGwWLAN;
  * @author Guenther Schreiner - Initial contribution.
  */
 @NonNullByDefault
-public abstract class GetWLANConfig implements BridgeCommunicationProtocol {
+public abstract class GetWLANConfig extends BridgeCommunication implements BridgeCommunicationProtocol {
 
     /**
      * <B>Retrieval of the parameters of the wireless LAN configuration.</B>

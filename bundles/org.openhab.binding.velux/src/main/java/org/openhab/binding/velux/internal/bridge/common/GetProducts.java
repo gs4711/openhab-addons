@@ -32,7 +32,7 @@ import org.openhab.binding.velux.internal.things.VeluxProduct;
  *
  */
 @NonNullByDefault
-public abstract class GetProducts implements BridgeCommunicationProtocol {
+public abstract class GetProducts extends BridgeCommunication implements BridgeCommunicationProtocol {
 
     /**
      * <B>Retrieval of information about all products</B>

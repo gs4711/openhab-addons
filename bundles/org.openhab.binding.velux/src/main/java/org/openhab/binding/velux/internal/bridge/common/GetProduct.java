@@ -32,7 +32,7 @@ import org.openhab.binding.velux.internal.things.VeluxProduct;
  * @author Guenther Schreiner - Initial contribution.
  */
 @NonNullByDefault
-public abstract class GetProduct implements BridgeCommunicationProtocol {
+public abstract class GetProduct extends BridgeCommunication implements BridgeCommunicationProtocol {
 
     /**
      * Set the intended node identifier to be queried

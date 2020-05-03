@@ -30,7 +30,7 @@ import org.eclipse.jdt.annotation.NonNullByDefault;
  * @author Guenther Schreiner - Initial contribution.
  */
 @NonNullByDefault
-public abstract class RunProductCommand implements BridgeCommunicationProtocol {
+public abstract class RunProductCommand extends BridgeCommunication implements BridgeCommunicationProtocol {
 
     /**
      * Modifies the state of an actuator
