@@ -18,6 +18,7 @@ import java.net.ConnectException;
 import org.eclipse.jdt.annotation.NonNullByDefault;
 import org.openhab.binding.velux.internal.bridge.VeluxBridgeInstance;
 import org.openhab.binding.velux.internal.bridge.slip.utils.Packet;
+import org.openhab.binding.velux.internal.bridge.slip.utils.Protocol;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -32,6 +33,9 @@ import org.slf4j.LoggerFactory;
  * <LI>{@link Connection#isMessageAvailable} to check the presence of an incoming message,</LI>
  * <LI>{@link Connection#lastSuccessfulCommunication} returns the timestamp of the last successful communication,</LI>
  * <LI>{@link Connection#lastCommunication} returns the timestamp of the last communication,</LI>
+ * <LI>{@link Connection#flagResponseAsUnprocessed} for passing back of an unused response,</LI>
+ * <LI>{@link Connection#flagResponseAsProcessed} for signaling of an used response,</LI>
+ * <LI>{@link Connection#flagHandshakeAsProcessed} for notifying of a completed handshake,</LI>
  * <LI>{@link Connection#resetConnection} for resetting the current connection.</LI>
  * </UL>
  *
@@ -58,6 +62,31 @@ public class Connection {
      * SSL socket for communication.
      */
     private SSLconnection connectivity = SSLconnection.UNKNOWN;
+    /**
+     * Common thread-aware unbounded thread-safe {@link ExtendedConcurrentLinkedQueue}.
+     */
+    private ExtendedConcurrentLinkedQueue<byte[]> responseFIFO = new ExtendedConcurrentLinkedQueue<byte[]>();
+    /**
+     * Helper class to print a message.
+     */
+    private Protocol protocol = new Protocol() {
+        @Override
+        public String toString(byte[] packet) {
+            return packet.toString();
+        }
+    };
+
+    /*
+     * *******************************
+     * ***** Constructor Methods *****
+     */
+
+    public Connection() {
+    }
+
+    public Connection(Protocol t) {
+        protocol = t;
+    }
 
     /*
      * **************************
@@ -91,7 +120,6 @@ public class Connection {
                         String host = bridgeInstance.veluxBridgeConfiguration().ipAddress;
                         int port = bridgeInstance.veluxBridgeConfiguration().tcpPort;
                         int timeoutMsecs = bridgeInstance.veluxBridgeConfiguration().timeoutMsecs;
-
                         logger.trace("io(): connecting to {}:{}.", host, port);
                         connectivity = new SSLconnection(host, port);
                         connectivity.setTimeout(timeoutMsecs);
@@ -112,6 +140,9 @@ public class Connection {
                             logger.debug("io(): sending packet of size {}.", request.length);
                         }
                         if (connectivity.isReady()) {
+                            if (logger.isTraceEnabled()) {
+                                logger.trace("io-Send   () {}", protocol.toString(request));
+                            }
                             connectivity.send(request);
                         }
                     } catch (IOException e) {
@@ -131,17 +162,26 @@ public class Connection {
                     }
                 }
                 byte[] packet = new byte[0];
-                logger.trace("io(): receiving bytes.");
-                if (connectivity.isReady()) {
-                    packet = connectivity.receive();
+                if (!responseFIFO.isEmpty()) {
+                    logger.trace("io(): using recently received bytes.");
+                    packet = responseFIFO.peek();
+                } else {
+                    logger.trace("io(): receiving bytes.");
+                    if (connectivity.isReady()) {
+                        packet = connectivity.receive();
+                        lastSuccessfulCommunicationInMSecs = System.currentTimeMillis();
+                        lastCommunicationInMSecs = lastSuccessfulCommunicationInMSecs;
+                    }
                 }
+                if (logger.isTraceEnabled()) {
+                    logger.trace("io-Receive() {}", protocol.toString(packet));
+                }
+
                 if (logger.isTraceEnabled()) {
                     logger.trace("io(): received packet with {} bytes: {}", packet.length, new Packet(packet));
                 } else {
                     logger.debug("io(): received packet with {} bytes.", packet.length);
                 }
-                lastSuccessfulCommunicationInMSecs = System.currentTimeMillis();
-                lastCommunicationInMSecs = lastSuccessfulCommunicationInMSecs;
                 logger.trace("io() finished.");
                 return packet;
             } catch (IOException ioe) {
@@ -170,11 +210,41 @@ public class Connection {
     }
 
     /**
+     * Hand back a response as unusable.
+     *
+     * @param response as Array of bytes representing the structure of the message to be handed back.
+     */
+    public synchronized void flagResponseAsProcessed(byte[] response) {
+        responseFIFO.purge(response);
+        logger.trace("flagResponseAsProcessed() called with packet of {} bytes. Queue contains {} items.",
+                response.length, responseFIFO.size());
+    }
+
+    /**
+     * Hand back a response as unusable.
+     *
+     * @param response as Array of bytes representing the structure of the message to be handed back.
+     */
+    public synchronized void flagResponseAsUnprocessed(byte[] response) {
+        responseFIFO.add(response);
+        logger.debug("flagResponseAsUnprocessed() called with packet of {} bytes. Queue contains {} items.",
+                response.length, responseFIFO.size());
+    }
+
+    /**
+     * Hand back a response as unusable.
+     */
+    public synchronized void flagHandshakeAsProcessed() {
+        responseFIFO.clean();
+        logger.trace("flagHandshakeAsProcessed() leftover messages: {}", responseFIFO.toString());
+    }
+
+    /**
      * Returns the status of the current connection.
      *
      * @return state as boolean.
      */
-    public boolean isAlive() {
+    public synchronized boolean isAlive() {
         logger.trace("isAlive(): called.");
         return connectivity.isReady();
     }
@@ -186,6 +256,10 @@ public class Connection {
      */
     public synchronized boolean isMessageAvailable() {
         logger.trace("isMessageAvailable(): called.");
+        if (!responseFIFO.isEmpty()) {
+            logger.trace("isMessageAvailable(): there is a not-yet-consumed message waiting.");
+            return true;
+        }
         try {
             if ((connectivity.isReady()) && (connectivity.available())) {
                 logger.trace("isMessageAvailable(): there is a message waiting.");
@@ -205,7 +279,7 @@ public class Connection {
      *
      * @return timestamp in milliseconds.
      */
-    public long lastSuccessfulCommunication() {
+    public synchronized long lastSuccessfulCommunication() {
         return lastSuccessfulCommunicationInMSecs;
     }
 
@@ -215,7 +289,7 @@ public class Connection {
      *
      * @return timestamp in milliseconds.
      */
-    public long lastCommunication() {
+    public synchronized long lastCommunication() {
         return lastCommunicationInMSecs;
     }
 
@@ -233,8 +307,9 @@ public class Connection {
             } catch (IOException e) {
                 logger.info("resetConnection(): raised an error during connection close: {}.", e.getMessage());
             }
-            logger.trace("resetConnection(): clearing authentication token.");
         }
+        logger.trace("resetConnection(): resetting not-yet-consumed message queue as well.");
+        responseFIFO.purge();
         logger.trace("resetConnection() done.");
     }
 
