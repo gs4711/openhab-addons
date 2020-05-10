@@ -549,7 +549,7 @@ public class VeluxKLFAPI {
      * Methods available:
      * <UL>
      * <LI>Constructor {@link StatusReply} by String.</LI>
-     * <LI>Method {@link getShort} to return a value of this status.</LI>
+     * <LI>Method {@link getValue} to return a value of this status.</LI>
      * <LI>Method {@link getDescription} to return a description as String.</LI>
      * <LI>Method {@link get} to return a {@link StatusReply} based on the given <B>short</B>.</LI>
      * </UL>
