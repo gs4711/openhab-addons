@@ -71,13 +71,6 @@
 			<default>true</default>
 			<advanced>true</advanced>
 		</parameter>
-		<parameter name="isSequentialEnforced" type="boolean">
-			<label>@text/config.velux.bridge.isSequentialEnforced.label</label>
-			<description>@text/config.velux.bridge.isSequentialEnforced.description</description>
-			<required>false</required>
-			<default>false</default>
-			<advanced>true</advanced>
-		</parameter>
 		<parameter name="isProtocolTraceEnabled" type="boolean">
 			<label>@text/config.velux.bridge.isProtocolTraceEnabled.label</label>
 			<description>@text/config.velux.bridge.isProtocolTraceEnabled.description</description>
