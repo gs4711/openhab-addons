@@ -174,7 +174,7 @@ class SCrunProductCommand extends RunProductCommand implements SlipBridgeCommuni
     }
 
     @Override
-    public boolean setResponse(short responseCommand, byte[] thisResponseData, boolean isSequentialEnforced) {
+    public boolean setResponse(short responseCommand, byte[] thisResponseData) {
         KLF200Response.introLogging(logger, responseCommand, thisResponseData);
         setCommunicationUnfinishedAndUnsuccessful();
         if (!KLF200Response.isExpectedAnswer(logger, STATEMACHINE, currentState, responseCommand)) {
@@ -236,7 +236,7 @@ class SCrunProductCommand extends RunProductCommand implements SlipBridgeCommuni
                 }
 
                 // TODO 20200503 new-start
-                if (true) {
+                if (false) {
                     logger.warn("setResponse(): waiting {} seconds.", 30);
                     try {
                         Thread.sleep(1000 * 30);

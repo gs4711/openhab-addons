@@ -77,8 +77,9 @@ class SCgetScenes extends GetScenes implements SlipBridgeCommunicationProtocol {
 
     private KLF200Handshake.State currentState = KLF200Handshake.State.IDLE;
 
-    private int sceneIdx;
     private VeluxScene[] scenes = new VeluxScene[0];
+    private int totalNumberOfScenes;
+    private int nextSceneArrayItem;
 
     /*
      * ===========================================================
@@ -104,7 +105,7 @@ class SCgetScenes extends GetScenes implements SlipBridgeCommunicationProtocol {
     }
 
     @Override
-    public boolean setResponse(short responseCommand, byte[] thisResponseData, boolean isSequentialEnforced) {
+    public boolean setResponse(short responseCommand, byte[] thisResponseData) {
         KLF200Response.introLogging(logger, responseCommand, thisResponseData);
         setCommunicationUnfinishedAndUnsuccessful();
         if (!KLF200Response.isExpectedAnswer(logger, STATEMACHINE, currentState, responseCommand)) {
@@ -125,7 +126,8 @@ class SCgetScenes extends GetScenes implements SlipBridgeCommunicationProtocol {
                 }
                 logger.trace("setResponse(): {} scenes defined.", ntfTotalNumberOfObjects);
                 currentState = KLF200Handshake.State.WAIT4NOTIFICATION;
-                sceneIdx = 0;
+                nextSceneArrayItem = 0;
+                totalNumberOfScenes = ntfTotalNumberOfObjects;
                 break;
 
             case GW_GET_SCENE_LIST_NTF:
@@ -152,7 +154,13 @@ class SCgetScenes extends GetScenes implements SlipBridgeCommunicationProtocol {
                     int beginOfString = 2 + 65 * objectIndex;
                     String ntfSceneName = responseData.getString(beginOfString, 64);
                     logger.trace("setResponse(): scene {}, name {}.", ntfSceneID, ntfSceneName);
-                    scenes[sceneIdx++] = new VeluxScene(ntfSceneName, ntfSceneID, false, new VeluxProductState[0]);
+                    if (nextSceneArrayItem < totalNumberOfScenes) {
+                        scenes[nextSceneArrayItem++] = new VeluxScene(ntfSceneName, ntfSceneID, false,
+                                new VeluxProductState[0]);
+                    } else {
+                        logger.warn("setResponse(): expected {} scenes, received one more, ignoring it.",
+                                totalNumberOfScenes);
+                    }
                 }
                 int ntfRemainingNumberOfObject = responseData.getOneByteValue(1 + 65 * ntfNumberOfObject);
                 logger.trace("setResponse(): {} scenes remaining.", ntfRemainingNumberOfObject);

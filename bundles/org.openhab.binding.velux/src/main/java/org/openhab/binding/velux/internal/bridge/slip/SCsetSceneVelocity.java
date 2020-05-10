@@ -119,7 +119,7 @@ class SCsetSceneVelocity extends SetSceneVelocity implements SlipBridgeCommunica
     }
 
     @Override
-    public boolean setResponse(short responseCommand, byte[] thisResponseData, boolean isSequentialEnforced) {
+    public boolean setResponse(short responseCommand, byte[] thisResponseData) {
         KLF200Response.introLogging(logger, responseCommand, thisResponseData);
         if (!KLF200Response.isExpectedAnswer(logger, STATEMACHINE, currentState, responseCommand)) {
             return false;

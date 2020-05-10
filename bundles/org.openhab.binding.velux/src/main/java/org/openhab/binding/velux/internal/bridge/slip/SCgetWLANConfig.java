@@ -92,7 +92,7 @@ class SCgetWLANConfig extends GetWLANConfig implements SlipBridgeCommunicationPr
     }
 
     @Override
-    public boolean setResponse(short thisResponseCommand, byte[] thisResponseData, boolean isSequentialEnforced) {
+    public boolean setResponse(short thisResponseCommand, byte[] thisResponseData) {
         logger.trace("setResponseCommand({}, {}) called.", thisResponseCommand, new Packet(thisResponseData));
         return true;
     }

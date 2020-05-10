@@ -149,7 +149,7 @@ class SCgetLimitation extends GetProductLimitation implements SlipBridgeCommunic
     }
 
     @Override
-    public boolean setResponse(short responseCommand, byte[] thisResponseData, boolean isSequentialEnforced) {
+    public boolean setResponse(short responseCommand, byte[] thisResponseData) {
         KLF200Response.introLogging(logger, responseCommand, thisResponseData);
         setCommunicationUnfinishedAndUnsuccessful();
         if (!KLF200Response.isExpectedAnswer(logger, STATEMACHINE, currentState, responseCommand)) {

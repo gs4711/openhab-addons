@@ -110,7 +110,7 @@ class SCrunProductSearch extends RunProductSearch implements SlipBridgeCommunica
     }
 
     @Override
-    public boolean setResponse(short thisResponseCommand, byte[] thisResponseData, boolean isSequentialEnforced) {
+    public boolean setResponse(short thisResponseCommand, byte[] thisResponseData) {
         logger.trace("setResponseCommand({}, {}) called.", thisResponseCommand, new Packet(thisResponseData));
         responseCommand = thisResponseCommand;
         responseData = thisResponseData;

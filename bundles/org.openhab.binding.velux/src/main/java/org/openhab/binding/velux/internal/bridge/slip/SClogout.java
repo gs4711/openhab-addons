@@ -84,7 +84,7 @@ class SClogout extends Logout implements SlipBridgeCommunicationProtocol {
     }
 
     @Override
-    public boolean setResponse(short responseCommand, byte[] thisResponseData, boolean isSequentialEnforced) {
+    public boolean setResponse(short responseCommand, byte[] thisResponseData) {
         KLF200Response.introLogging(logger, responseCommand, thisResponseData);
         success = true;
         finished = true;
